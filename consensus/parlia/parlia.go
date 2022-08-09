@@ -1082,18 +1082,7 @@ func (p *Parlia) distributeIncoming(
 
 	log.Trace("burn the gas fee", "block hash", header.Hash(), "amount", balance)
 
-	// reward zero amount
-	var rewards = big.NewInt(0)
-
-	err := p.distributeToSystem(rewards, state, header, chain, txs, receipts, receivedTxs, usedGas, mining)
-	if err != nil {
-		return err
-	}
-
-	log.Trace("distribute to system reward pool and validator contract",
-		"block hash", header.Hash(), "amount", rewards)
-
-	return p.distributeToValidator(balance, val, state, header, chain, txs, receipts, receivedTxs, usedGas, mining)
+	return nil
 }
 
 // slash spoiled validators
@@ -1147,35 +1136,6 @@ func (p *Parlia) initContract(state *state.StateDB, header *types.Header, chain 
 		}
 	}
 	return nil
-}
-
-func (p *Parlia) distributeToSystem(amount *big.Int, state *state.StateDB, header *types.Header, chain core.ChainContext,
-	txs *[]*types.Transaction, receipts *[]*types.Receipt, receivedTxs *[]*types.Transaction, usedGas *uint64, mining bool) error {
-	// get system message
-	msg := p.getSystemMessage(header.Coinbase, common.HexToAddress(systemcontract.SystemRewardContract), nil, amount)
-	// apply message
-	return p.applyTransaction(msg, state, header, chain, txs, receipts, receivedTxs, usedGas, mining)
-}
-
-// slash spoiled validators
-func (p *Parlia) distributeToValidator(amount *big.Int, validator common.Address,
-	state *state.StateDB, header *types.Header, chain core.ChainContext,
-	txs *[]*types.Transaction, receipts *[]*types.Receipt, receivedTxs *[]*types.Transaction, usedGas *uint64, mining bool) error {
-	// method
-	method := "deposit"
-
-	// get packed data
-	data, err := p.validatorSetABI.Pack(method,
-		validator,
-	)
-	if err != nil {
-		log.Error("Unable to pack tx for deposit", "error", err)
-		return err
-	}
-	// get system message
-	msg := p.getSystemMessage(header.Coinbase, common.HexToAddress(systemcontract.ValidatorContract), data, amount)
-	// apply message
-	return p.applyTransaction(msg, state, header, chain, txs, receipts, receivedTxs, usedGas, mining)
 }
 
 // get system message
