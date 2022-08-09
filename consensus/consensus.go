@@ -29,6 +29,7 @@ import (
 )
 
 var (
+	// Use this address as gas fee burning address, which would not be transferred back again.
 	SystemAddress = common.HexToAddress("0xffffFFFfFFffffffffffffffFfFFFfffFFFfFFfE")
 )
 
@@ -145,4 +146,5 @@ type PoSA interface {
 	EnoughDistance(chain ChainReader, header *types.Header) bool
 	IsLocalBlock(header *types.Header) bool
 	AllowLightProcess(chain ChainReader, currentHeader *types.Header) bool
+	BurnGasFee(state *state.StateDB) *big.Int
 }

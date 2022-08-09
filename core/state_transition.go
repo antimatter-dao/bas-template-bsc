@@ -278,6 +278,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 
 	// consensus engine is parlia
 	if st.evm.ChainConfig().Parlia != nil {
+		// cache the reward to system address
 		st.state.AddBalance(consensus.SystemAddress, new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), st.gasPrice))
 	} else {
 		st.state.AddBalance(st.evm.Context.Coinbase, new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), st.gasPrice))

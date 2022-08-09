@@ -1228,11 +1228,7 @@ func (s *PublicBlockChainAPI) replay(ctx context.Context, block *types.Block, ac
 
 		if posa, ok := s.b.Engine().(consensus.PoSA); ok {
 			if isSystem, _ := posa.IsSystemTransaction(tx, block.Header()); isSystem {
-				balance := statedb.GetBalance(consensus.SystemAddress)
-				if balance.Cmp(common.Big0) > 0 {
-					statedb.SetBalance(consensus.SystemAddress, big.NewInt(0))
-					statedb.AddBalance(block.Header().Coinbase, balance)
-				}
+				posa.BurnGasFee(statedb)
 			}
 		}
 

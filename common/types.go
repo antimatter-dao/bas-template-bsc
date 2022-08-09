@@ -45,6 +45,11 @@ var (
 	addressT = reflect.TypeOf(Address{})
 )
 
+var (
+	// BurnGasAddr is gas burning address which would never roll back.
+	BurnGasAddr = HexToAddress("0x000000000000000000000000000000000000dEaD")
+)
+
 // Hash represents the 32 byte Keccak256 hash of arbitrary data.
 type Hash [HashLength]byte
 

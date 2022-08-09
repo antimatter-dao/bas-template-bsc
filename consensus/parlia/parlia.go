@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/ethereum/go-ethereum/common/systemcontract"
 	"io"
 	"math"
 	"math/big"
@@ -16,15 +15,13 @@ import (
 	"sync"
 	"time"
 
-	lru "github.com/hashicorp/golang-lru"
-	"golang.org/x/crypto/sha3"
-
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/gopool"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/common/systemcontract"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core"
@@ -40,6 +37,8 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/ethereum/go-ethereum/trie"
+	lru "github.com/hashicorp/golang-lru"
+	"golang.org/x/crypto/sha3"
 )
 
 const (
@@ -59,15 +58,12 @@ const (
 	processBackOffTime   = uint64(1) // second
 
 	systemRewardPercent = 4 // it means 1/2^4 = 1/16 percentage of gas fee incoming will be distributed to system
-
 )
 
 var (
 	uncleHash  = types.CalcUncleHash(nil) // Always Keccak256(RLP([])) as uncles are meaningless outside of PoW.
 	diffInTurn = big.NewInt(2)            // Block difficulty for in-turn signatures
 	diffNoTurn = big.NewInt(1)            // Block difficulty for out-of-turn signatures
-	// 100 native token
-	maxSystemBalance = new(big.Int).Mul(big.NewInt(100), big.NewInt(params.Ether))
 )
 
 // Various error messages to mark blocks invalid. These should be private to
@@ -940,6 +936,19 @@ func (p *Parlia) IsLocalBlock(header *types.Header) bool {
 	return p.val == header.Coinbase
 }
 
+func (p *Parlia) BurnGasFee(state *state.StateDB) (balance *big.Int) {
+	balance = state.GetBalance(consensus.SystemAddress)
+	if balance.Cmp(common.Big0) <= 0 {
+		return
+	}
+
+	// burn it
+	state.SetBalance(consensus.SystemAddress, big.NewInt(0))
+	state.AddBalance(common.BurnGasAddr, balance)
+
+	return
+}
+
 func (p *Parlia) SignRecently(chain consensus.ChainReader, parent *types.Header) (bool, error) {
 	snap, err := p.snapshot(chain, parent.Number.Uint64(), parent.ParentHash, nil)
 	if err != nil {
@@ -1053,38 +1062,37 @@ func (p *Parlia) getCurrentValidators(blockHash common.Hash) ([]common.Address, 
 }
 
 // slash spoiled validators
-func (p *Parlia) distributeIncoming(val common.Address, state *state.StateDB, header *types.Header, chain core.ChainContext,
-	txs *[]*types.Transaction, receipts *[]*types.Receipt, receivedTxs *[]*types.Transaction, usedGas *uint64, mining bool) error {
-	coinbase := header.Coinbase
-	balance := state.GetBalance(consensus.SystemAddress)
+//
+// NOTE: This parameter design is ugly, better to refactor it.
+func (p *Parlia) distributeIncoming(
+	val common.Address,
+	state *state.StateDB,
+	header *types.Header,
+	chain core.ChainContext,
+	txs *[]*types.Transaction,
+	receipts *[]*types.Receipt,
+	receivedTxs *[]*types.Transaction,
+	usedGas *uint64,
+	mining bool,
+) error {
+	balance := p.BurnGasFee(state)
 	if balance.Cmp(common.Big0) <= 0 {
 		return nil
 	}
-	state.SetBalance(consensus.SystemAddress, big.NewInt(0))
-	state.AddBalance(coinbase, balance)
 
-	if rules := p.chainConfig.Rules(header.Number); rules.HasBlockRewards {
-		blockRewards := p.chainConfig.Parlia.BlockRewards
-		// if we have enabled block rewards and rewards are greater than 0 then
-		if blockRewards != nil && blockRewards.Cmp(common.Big0) > 0 {
-			state.AddBalance(coinbase, blockRewards)
-		}
+	log.Trace("burn the gas fee", "block hash", header.Hash(), "amount", balance)
+
+	// reward zero amount
+	var rewards = big.NewInt(0)
+
+	err := p.distributeToSystem(rewards, state, header, chain, txs, receipts, receivedTxs, usedGas, mining)
+	if err != nil {
+		return err
 	}
 
-	doDistributeSysReward := state.GetBalance(common.HexToAddress(systemcontract.SystemRewardContract)).Cmp(maxSystemBalance) < 0
-	if doDistributeSysReward {
-		var rewards = new(big.Int)
-		rewards = rewards.Rsh(balance, systemRewardPercent)
-		if rewards.Cmp(common.Big0) > 0 {
-			err := p.distributeToSystem(rewards, state, header, chain, txs, receipts, receivedTxs, usedGas, mining)
-			if err != nil {
-				return err
-			}
-			log.Trace("distribute to system reward pool", "block hash", header.Hash(), "amount", rewards)
-			balance = balance.Sub(balance, rewards)
-		}
-	}
-	log.Trace("distribute to validator contract", "block hash", header.Hash(), "amount", balance)
+	log.Trace("distribute to system reward pool and validator contract",
+		"block hash", header.Hash(), "amount", rewards)
+
 	return p.distributeToValidator(balance, val, state, header, chain, txs, receipts, receivedTxs, usedGas, mining)
 }
 
