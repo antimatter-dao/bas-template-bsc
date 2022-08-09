@@ -535,11 +535,7 @@ func (api *API) IntermediateRoots(ctx context.Context, hash common.Hash, config 
 
 		if posa, ok := api.backend.Engine().(consensus.PoSA); ok {
 			if isSystem, _ := posa.IsSystemTransaction(tx, block.Header()); isSystem {
-				balance := statedb.GetBalance(consensus.SystemAddress)
-				if balance.Cmp(common.Big0) > 0 {
-					statedb.SetBalance(consensus.SystemAddress, big.NewInt(0))
-					statedb.AddBalance(vmctx.Coinbase, balance)
-				}
+				posa.BurnGasFee(statedb)
 			}
 		}
 
@@ -643,11 +639,7 @@ func (api *API) traceBlock(ctx context.Context, block *types.Block, config *Trac
 
 		if posa, ok := api.backend.Engine().(consensus.PoSA); ok {
 			if isSystem, _ := posa.IsSystemTransaction(tx, block.Header()); isSystem {
-				balance := statedb.GetBalance(consensus.SystemAddress)
-				if balance.Cmp(common.Big0) > 0 {
-					statedb.SetBalance(consensus.SystemAddress, big.NewInt(0))
-					statedb.AddBalance(block.Header().Coinbase, balance)
-				}
+				posa.BurnGasFee(statedb)
 			}
 		}
 
@@ -767,11 +759,7 @@ func (api *API) standardTraceBlockToFile(ctx context.Context, block *types.Block
 		vmenv := vm.NewEVM(vmctx, txContext, statedb, chainConfig, vmConf)
 		if posa, ok := api.backend.Engine().(consensus.PoSA); ok {
 			if isSystem, _ := posa.IsSystemTransaction(tx, block.Header()); isSystem {
-				balance := statedb.GetBalance(consensus.SystemAddress)
-				if balance.Cmp(common.Big0) > 0 {
-					statedb.SetBalance(consensus.SystemAddress, big.NewInt(0))
-					statedb.AddBalance(vmctx.Coinbase, balance)
-				}
+				posa.BurnGasFee(statedb)
 			}
 		}
 		statedb.Prepare(tx.Hash(), block.Hash(), i)
@@ -933,11 +921,7 @@ func (api *API) traceTx(ctx context.Context, message core.Message, txctx *Contex
 
 	if posa, ok := api.backend.Engine().(consensus.PoSA); ok && message.From() == vmctx.Coinbase &&
 		posa.IsSystemContract(message.To()) && message.GasPrice().Cmp(big.NewInt(0)) == 0 {
-		balance := statedb.GetBalance(consensus.SystemAddress)
-		if balance.Cmp(common.Big0) > 0 {
-			statedb.SetBalance(consensus.SystemAddress, big.NewInt(0))
-			statedb.AddBalance(vmctx.Coinbase, balance)
-		}
+		posa.BurnGasFee(statedb)
 	}
 
 	// Call Prepare to clear out the statedb access list

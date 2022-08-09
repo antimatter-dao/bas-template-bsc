@@ -196,11 +196,7 @@ func (eth *Ethereum) stateAtTransaction(block *types.Block, txIndex int, reexec 
 		vmenv := vm.NewEVM(context, txContext, statedb, eth.blockchain.Config(), vm.Config{})
 		if posa, ok := eth.Engine().(consensus.PoSA); ok && msg.From() == context.Coinbase &&
 			posa.IsSystemContract(msg.To()) && msg.GasPrice().Cmp(big.NewInt(0)) == 0 {
-			balance := statedb.GetBalance(consensus.SystemAddress)
-			if balance.Cmp(common.Big0) > 0 {
-				statedb.SetBalance(consensus.SystemAddress, big.NewInt(0))
-				statedb.AddBalance(context.Coinbase, balance)
-			}
+			posa.BurnGasFee(statedb)
 		}
 		statedb.Prepare(tx.Hash(), block.Hash(), idx)
 		if _, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(tx.Gas())); err != nil {
