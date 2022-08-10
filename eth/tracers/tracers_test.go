@@ -45,6 +45,11 @@ type callTrace struct {
 	Calls   []callTrace     `json:"calls,omitempty"`
 }
 
+var (
+	// for testing
+	_canCreateContract = func(db vm.StateDB, caller common.Address) bool { return true }
+)
+
 func BenchmarkTransactionTrace(b *testing.B) {
 	key, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 	from := crypto.PubkeyToAddress(key.PublicKey)
@@ -66,13 +71,14 @@ func BenchmarkTransactionTrace(b *testing.B) {
 		GasPrice: tx.GasPrice(),
 	}
 	context := vm.BlockContext{
-		CanTransfer: core.CanTransfer,
-		Transfer:    core.Transfer,
-		Coinbase:    common.Address{},
-		BlockNumber: new(big.Int).SetUint64(uint64(5)),
-		Time:        new(big.Int).SetUint64(uint64(5)),
-		Difficulty:  big.NewInt(0xffffffff),
-		GasLimit:    gas,
+		CanTransfer:       core.CanTransfer,
+		Transfer:          core.Transfer,
+		Coinbase:          common.Address{},
+		BlockNumber:       new(big.Int).SetUint64(uint64(5)),
+		Time:              new(big.Int).SetUint64(uint64(5)),
+		Difficulty:        big.NewInt(0xffffffff),
+		GasLimit:          gas,
+		CanCreateContract: _canCreateContract,
 	}
 	alloc := core.GenesisAlloc{}
 	// The code pushes 'deadbeef' into memory, then the other params, and calls CREATE2, then returns

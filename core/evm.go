@@ -45,14 +45,15 @@ func NewEVMBlockContext(header *types.Header, chain ChainContext, author *common
 		beneficiary = *author
 	}
 	return vm.BlockContext{
-		CanTransfer: CanTransfer,
-		Transfer:    Transfer,
-		GetHash:     GetHashFn(header, chain),
-		Coinbase:    beneficiary,
-		BlockNumber: new(big.Int).Set(header.Number),
-		Time:        new(big.Int).SetUint64(header.Time),
-		Difficulty:  new(big.Int).Set(header.Difficulty),
-		GasLimit:    header.GasLimit,
+		CanTransfer:       CanTransfer,
+		Transfer:          Transfer,
+		GetHash:           GetHashFn(header, chain),
+		Coinbase:          beneficiary,
+		BlockNumber:       new(big.Int).Set(header.Number),
+		Time:              new(big.Int).SetUint64(header.Time),
+		Difficulty:        new(big.Int).Set(header.Difficulty),
+		GasLimit:          header.GasLimit,
+		CanCreateContract: CanCreateContract,
 	}
 }
 
@@ -108,4 +109,9 @@ func CanTransfer(db vm.StateDB, addr common.Address, amount *big.Int) bool {
 func Transfer(db vm.StateDB, sender, recipient common.Address, amount *big.Int) {
 	db.SubBalance(sender, amount)
 	db.AddBalance(recipient, amount)
+}
+
+// CanCreateContract returns whether caller can create contract or not
+func CanCreateContract(db vm.StateDB, caller common.Address) bool {
+	return true
 }
