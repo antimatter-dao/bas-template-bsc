@@ -115,42 +115,64 @@ func Transfer(db vm.StateDB, sender, recipient common.Address, amount *big.Int) 
 
 // CanCreateContract returns whether caller can create contract or not
 func CanCreateContract(db vm.StateDB, caller common.Address) bool {
-	existsHash, bannedHash := calCallerSlotHashes(caller)
+	hash := calDeployerSlotHash(caller)
+	storage := db.GetState(systemcontract.DeployerProxyContractAddress, hash)
+	deployer := hashToDeployer(storage)
 
-	return db.GetState(systemcontract.DeployerProxyContractAddress, existsHash) == _trueHash &&
-		db.GetState(systemcontract.DeployerProxyContractAddress, bannedHash) == _trueHash
+	return deployer.Exists && !deployer.Banned
+}
+
+type deployer struct {
+	Exists  bool
+	Address common.Address
+	Banned  bool
+}
+
+func hashToDeployer(hash common.Hash) *deployer {
+	v := hash.Bytes()
+
+	return &deployer{
+		Exists:  v[31] > 0,                       // the lowest byte
+		Address: common.BytesToAddress(v[11:31]), // the address account
+		Banned:  v[11] > 0,                       // the 21st lowest byte
+	}
 }
 
 const (
-	_contractDeployerSlot = 13
-)
-
-var (
-	_trueHash = common.HexToHash("0x0000000000000000000000000000000000000001")
+	_contractDeployerSlot = 100
 )
 
 // calCallerSlotHash returns the storage hash of a deploer
 //
 // Genesis contract commit SHA: f1be5672e6a2b94bc8414eb598564456e047f75d.
-// The mapping slot is 13, the Deployer struct consumes 3 words.
+//
+//     uint8 private _initialized; // position 0
+//     bool private _initializing; // position 0
+//     IStaking internal immutable _STAKING_CONTRACT; // address position 0
+//     ISlashingIndicator internal immutable _SLASHING_INDICATOR_CONTRACT; // position 1
+//     ISystemReward internal immutable _SYSTEM_REWARD_CONTRACT; // position 2
+//     IStakingPool internal immutable _STAKING_POOL_CONTRACT;
+//     IGovernance internal immutable _GOVERNANCE_CONTRACT;
+//     IChainConfig internal immutable _CHAIN_CONFIG_CONTRACT;
+//     IRuntimeUpgrade internal immutable _RUNTIME_UPGRADE_CONTRACT;
+//     IDeployerProxy internal immutable _DEPLOYER_PROXY_CONTRACT;
+//     bytes internal _delayedInitializer; // position 8, save its byte length
+//     uint256[_SKIP_OFFSET] private __removed; // position begins at 9, hold 10 slot
+//     uint256[_LAYOUT_OFFSET - _SKIP_OFFSET - 2] private __reserved; // position begins at 19, hold 88 slot
+//     mapping(address => Deployer) public _contractDeployers; // position 107
+//
+// The mapping position is 107, and the Deployer struct consumes only 1 words.
 //     struct Deployer {
-//         bool exists; // 0
-//         address account; // 1
-//         bool banned; // 2
+//         bool exists; // lower byte 0
+//         address account; // lower byte 20 to 1
+//         bool banned; // lower byte 21
 //     }
 //     mapping(address => Deployer) private _contractDeployers;
 //
 // Those constants are hardcoded, so the contract commit SHA must be specified.
-func calCallerSlotHashes(caller common.Address) (existsHash common.Hash, bannedHash common.Hash) {
+func calDeployerSlotHash(caller common.Address) common.Hash {
 	// NOTE: The deployer mapping must be public for storage reading.
-	baseHashBytes := getAddressMapping(caller, _contractDeployerSlot)
-	existsHash = common.BytesToHash(baseHashBytes)
-
-	bannedHashInt := new(big.Int).SetBytes(baseHashBytes)
-	bannedHashInt = bannedHashInt.Add(bannedHashInt, big.NewInt(2))
-	bannedHash = common.BytesToHash(bannedHashInt.Bytes())
-
-	return
+	return common.BytesToHash(getAddressMapping(caller, _contractDeployerSlot))
 }
 
 // getAddressMapping returns the key for the SC storage mapping (address => something)
@@ -159,12 +181,10 @@ func calCallerSlotHashes(caller common.Address) (existsHash common.Hash, bannedH
 // https://docs.soliditylang.org/en/latest/internals/layout_in_storage.html
 func getAddressMapping(address common.Address, slot int64) []byte {
 	bigSlot := big.NewInt(slot)
-
 	finalSlice := append(
 		common.PadLeftOrTrim(address.Bytes(), 32),
 		common.PadLeftOrTrim(bigSlot.Bytes(), 32)...,
 	)
-	keccakValue := crypto.Keccak256(nil, finalSlice)
 
-	return keccakValue
+	return crypto.Keccak256(finalSlice)
 }
