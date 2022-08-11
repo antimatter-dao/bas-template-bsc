@@ -47,6 +47,8 @@ type (
 	// GetHashFunc returns the n'th block hash in the blockchain
 	// and is used by the BLOCKHASH EVM op code.
 	GetHashFunc func(uint64) common.Hash
+	// CanCreateContractFunc is the signature of judging contract create authorization
+	CanCreateContractFunc func(db StateDB, caller common.Address) bool
 )
 
 func (evm *EVM) precompile(addr, caller common.Address) (PrecompiledContract, bool) {
@@ -93,6 +95,8 @@ type BlockContext struct {
 	Transfer TransferFunc
 	// GetHash returns the hash corresponding to n
 	GetHash GetHashFunc
+	// CanCreateContract returns whether caller can create contract or not
+	CanCreateContract CanCreateContractFunc
 
 	// Block information
 	Coinbase    common.Address // Provides information for COINBASE
@@ -552,9 +556,25 @@ func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64,
 	return ret, address, contract.Gas, err
 }
 
+// CanCreate returns whether caller can create contract or not.
+//
+// It should search its creator whitelist.
+func (evm *EVM) CanCreateContract(caller ContractRef) bool {
+	if evm.Context.CanCreateContract == nil {
+		return true
+	}
+
+	return evm.Context.CanCreateContract(evm.StateDB, caller.Address())
+}
+
 // Create creates a new contract using code as deployment code.
 func (evm *EVM) Create(caller ContractRef, code []byte, gas uint64, value *big.Int) (ret []byte, contractAddr common.Address, leftOverGas uint64, err error) {
+	if !evm.CanCreateContract(caller) {
+		return nil, contractAddr, leftOverGas, ErrContractCreatorNotAuthorized
+	}
+
 	contractAddr = crypto.CreateAddress(caller.Address(), evm.StateDB.GetNonce(caller.Address()))
+
 	return evm.create(caller, &codeAndHash{code: code}, gas, value, contractAddr, CREATE)
 }
 

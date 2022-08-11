@@ -20,9 +20,11 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/systemcontract"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/crypto"
 )
 
 // ChainContext supports retrieving headers and consensus parameters from the
@@ -45,14 +47,15 @@ func NewEVMBlockContext(header *types.Header, chain ChainContext, author *common
 		beneficiary = *author
 	}
 	return vm.BlockContext{
-		CanTransfer: CanTransfer,
-		Transfer:    Transfer,
-		GetHash:     GetHashFn(header, chain),
-		Coinbase:    beneficiary,
-		BlockNumber: new(big.Int).Set(header.Number),
-		Time:        new(big.Int).SetUint64(header.Time),
-		Difficulty:  new(big.Int).Set(header.Difficulty),
-		GasLimit:    header.GasLimit,
+		CanTransfer:       CanTransfer,
+		Transfer:          Transfer,
+		GetHash:           GetHashFn(header, chain),
+		Coinbase:          beneficiary,
+		BlockNumber:       new(big.Int).Set(header.Number),
+		Time:              new(big.Int).SetUint64(header.Time),
+		Difficulty:        new(big.Int).Set(header.Difficulty),
+		GasLimit:          header.GasLimit,
+		CanCreateContract: CanCreateContract,
 	}
 }
 
@@ -108,4 +111,80 @@ func CanTransfer(db vm.StateDB, addr common.Address, amount *big.Int) bool {
 func Transfer(db vm.StateDB, sender, recipient common.Address, amount *big.Int) {
 	db.SubBalance(sender, amount)
 	db.AddBalance(recipient, amount)
+}
+
+// CanCreateContract returns whether caller can create contract or not
+func CanCreateContract(db vm.StateDB, caller common.Address) bool {
+	hash := calDeployerSlotHash(caller)
+	storage := db.GetState(systemcontract.DeployerProxyContractAddress, hash)
+	deployer := hashToDeployer(storage)
+
+	return deployer.Exists && !deployer.Banned
+}
+
+type deployer struct {
+	Exists  bool
+	Address common.Address
+	Banned  bool
+}
+
+func hashToDeployer(hash common.Hash) *deployer {
+	v := hash.Bytes()
+
+	return &deployer{
+		Exists:  v[31] > 0,                       // the lowest byte
+		Address: common.BytesToAddress(v[11:31]), // the address account
+		Banned:  v[11] > 0,                       // the 21st lowest byte
+	}
+}
+
+const (
+	_contractDeployerSlot = 100
+)
+
+// calCallerSlotHash returns the storage hash of a deploer
+//
+// Genesis contract commit SHA: f1be5672e6a2b94bc8414eb598564456e047f75d.
+//
+//     uint8 private _initialized; // position 0
+//     bool private _initializing; // position 0
+//     IStaking internal immutable _STAKING_CONTRACT; // address position 0
+//     ISlashingIndicator internal immutable _SLASHING_INDICATOR_CONTRACT; // position 1
+//     ISystemReward internal immutable _SYSTEM_REWARD_CONTRACT; // position 2
+//     IStakingPool internal immutable _STAKING_POOL_CONTRACT;
+//     IGovernance internal immutable _GOVERNANCE_CONTRACT;
+//     IChainConfig internal immutable _CHAIN_CONFIG_CONTRACT;
+//     IRuntimeUpgrade internal immutable _RUNTIME_UPGRADE_CONTRACT;
+//     IDeployerProxy internal immutable _DEPLOYER_PROXY_CONTRACT;
+//     bytes internal _delayedInitializer; // position 8, save its byte length
+//     uint256[_SKIP_OFFSET] private __removed; // position begins at 9, hold 10 slot
+//     uint256[_LAYOUT_OFFSET - _SKIP_OFFSET - 2] private __reserved; // position begins at 19, hold 88 slot
+//     mapping(address => Deployer) public _contractDeployers; // position 107
+//
+// The mapping position is 107, and the Deployer struct consumes only 1 words.
+//     struct Deployer {
+//         bool exists; // lower byte 0
+//         address account; // lower byte 20 to 1
+//         bool banned; // lower byte 21
+//     }
+//     mapping(address => Deployer) private _contractDeployers;
+//
+// Those constants are hardcoded, so the contract commit SHA must be specified.
+func calDeployerSlotHash(caller common.Address) common.Hash {
+	// NOTE: The deployer mapping must be public for storage reading.
+	return common.BytesToHash(getAddressMapping(caller, _contractDeployerSlot))
+}
+
+// getAddressMapping returns the key for the SC storage mapping (address => something)
+//
+// More information:
+// https://docs.soliditylang.org/en/latest/internals/layout_in_storage.html
+func getAddressMapping(address common.Address, slot int64) []byte {
+	bigSlot := big.NewInt(slot)
+	finalSlice := append(
+		common.PadLeftOrTrim(address.Bytes(), 32),
+		common.PadLeftOrTrim(bigSlot.Bytes(), 32)...,
+	)
+
+	return crypto.Keccak256(finalSlice)
 }
