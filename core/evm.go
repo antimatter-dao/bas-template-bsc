@@ -134,7 +134,7 @@ func hashToDeployer(hash common.Hash) *deployer {
 	return &deployer{
 		Exists:  v[31] > 0,                       // the lowest byte
 		Address: common.BytesToAddress(v[11:31]), // the address account
-		Banned:  v[11] > 0,                       // the 21st lowest byte
+		Banned:  v[10] > 0,                       // the 21st lowest byte
 	}
 }
 
