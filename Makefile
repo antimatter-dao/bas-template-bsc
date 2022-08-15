@@ -17,8 +17,16 @@ geth:
 	@echo "Done building."
 	@echo "Run \"$(GOBIN)/geth\" to launch geth."
 
+geth-static:
+	$(GORUN) build/ci.go install -static ./cmd/geth
+	@echo "Done building."
+	@echo "Run \"$(GOBIN)/geth\" to launch geth."
+
 all:
 	$(GORUN) build/ci.go install
+
+all-static:
+	$(GORUN) build/ci.go install -static
 
 android:
 	$(GORUN) build/ci.go aar --local
