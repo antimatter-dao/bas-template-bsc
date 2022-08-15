@@ -15,7 +15,7 @@ env:
 
 jobs:
   build-devel-images:
-    if: github.event.pull_request.merged == true || github.event_name == push
+    if: github.event.pull_request.merged == true || github.event_name == 'push'
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
