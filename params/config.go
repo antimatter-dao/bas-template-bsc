@@ -52,6 +52,7 @@ var (
 		big.NewInt(0),
 		big.NewInt(0),
 		nil,
+		new(EthashConfig),
 		nil,
 		nil,
 	}
@@ -81,6 +82,7 @@ var (
 		big.NewInt(0),
 		big.NewInt(0),
 		nil,
+		nil,
 		&CliqueConfig{Period: 0, Epoch: 30000},
 		nil,
 	}
@@ -105,7 +107,9 @@ var (
 		big.NewInt(0),
 		big.NewInt(0),
 		nil,
-		nil, nil,
+		new(EthashConfig), // use pow for fitting eth tests
+		nil,
+		nil,
 	}
 )
 
@@ -196,8 +200,17 @@ type ChainConfig struct {
 	BlockRewardsBlock *big.Int `json:"blockRewardsBlock,omitempty" toml:",omitempty"`
 
 	// Various consensus engines
+	Ethash *EthashConfig `json:"ethash,omitempty" toml:",omitempty"`
 	Clique *CliqueConfig `json:"clique,omitempty" toml:",omitempty"`
 	Parlia *ParliaConfig `json:"parlia,omitempty" toml:",omitempty"`
+}
+
+// EthashConfig is the consensus engine configs for proof-of-work based sealing.
+type EthashConfig struct{}
+
+// String implements the stringer interface, returning the consensus engine details.
+func (c *EthashConfig) String() string {
+	return "ethash"
 }
 
 // CliqueConfig is the consensus engine configs for proof-of-authority based sealing.
@@ -543,8 +556,8 @@ type Rules struct {
 	IsHomestead, IsEIP150, IsEIP155, IsEIP158               bool
 	IsByzantium, IsConstantinople, IsPetersburg, IsIstanbul bool
 	IsBerlin, IsCatalyst                                    bool
-	HasRuntimeUpgrade, HasDeployerProxy bool
-	HasBlockRewards      bool
+	HasRuntimeUpgrade, HasDeployerProxy                     bool
+	HasBlockRewards                                         bool
 }
 
 // Rules ensures c's ChainID is not nil.
@@ -554,19 +567,19 @@ func (c *ChainConfig) Rules(num *big.Int) Rules {
 		chainID = new(big.Int)
 	}
 	return Rules{
-		ChainID:              new(big.Int).Set(chainID),
-		IsHomestead:          c.IsHomestead(num),
-		IsEIP150:             c.IsEIP150(num),
-		IsEIP155:             c.IsEIP155(num),
-		IsEIP158:             c.IsEIP158(num),
-		IsByzantium:          c.IsByzantium(num),
-		IsConstantinople:     c.IsConstantinople(num),
-		IsPetersburg:         c.IsPetersburg(num),
-		IsIstanbul:           c.IsIstanbul(num),
-		IsBerlin:             c.IsBerlin(num),
-		IsCatalyst:           c.IsCatalyst(num),
-		HasRuntimeUpgrade:    c.HasRuntimeUpgrade(num),
-		HasDeployerProxy:     c.HasDeployerProxy(num),
-		HasBlockRewards:      c.IsBlockRewardsBlock(num),
+		ChainID:           new(big.Int).Set(chainID),
+		IsHomestead:       c.IsHomestead(num),
+		IsEIP150:          c.IsEIP150(num),
+		IsEIP155:          c.IsEIP155(num),
+		IsEIP158:          c.IsEIP158(num),
+		IsByzantium:       c.IsByzantium(num),
+		IsConstantinople:  c.IsConstantinople(num),
+		IsPetersburg:      c.IsPetersburg(num),
+		IsIstanbul:        c.IsIstanbul(num),
+		IsBerlin:          c.IsBerlin(num),
+		IsCatalyst:        c.IsCatalyst(num),
+		HasRuntimeUpgrade: c.HasRuntimeUpgrade(num),
+		HasDeployerProxy:  c.HasDeployerProxy(num),
+		HasBlockRewards:   c.IsBlockRewardsBlock(num),
 	}
 }
