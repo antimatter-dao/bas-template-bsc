@@ -38,7 +38,7 @@ var (
 	// testAddr is the Ethereum address of the tester account.
 	testAddr = crypto.PubkeyToAddress(testKey.PublicKey)
 
-	testBalance = big.NewInt(2e10)
+	testBalance = big.NewInt(2e18)
 )
 
 func generateTestChain() (*core.Genesis, []*types.Block) {
