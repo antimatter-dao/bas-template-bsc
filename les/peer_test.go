@@ -98,7 +98,7 @@ func TestPeerSubscription(t *testing.T) {
 
 type fakeChain struct{}
 
-func (f *fakeChain) Config() *params.ChainConfig { return params.TestUsageChainConfig }
+func (f *fakeChain) Config() *params.ChainConfig { return params.TestUsageMainnetChainConfig }
 func (f *fakeChain) Genesis() *types.Block {
 	return core.DefaultTestUsageGenesisBlock().ToBlock(rawdb.NewMemoryDatabase())
 }

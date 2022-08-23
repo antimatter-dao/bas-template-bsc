@@ -237,27 +237,28 @@ func CreateConsensusEngine(
 		return parlia.New(chainConfig, db, ee, genesisHash)
 	}
 
-	if chainConfig.Ethash != nil {
-		// default engine: ethash fake mode, only for testing in eth test cases.
+	// Otherwise assume proof-of-work
+	switch config.PowMode {
+	case ethash.ModeFake:
 		log.Warn("Ethash used in fake mode")
-
-		engine := ethash.New(ethash.Config{
-			PowMode:          ethash.ModeFullFake,
-			CacheDir:         stack.ResolvePath(config.CacheDir),
-			CachesInMem:      config.CachesInMem,
-			CachesOnDisk:     config.CachesOnDisk,
-			CachesLockMmap:   config.CachesLockMmap,
-			DatasetDir:       config.DatasetDir,
-			DatasetsInMem:    config.DatasetsInMem,
-			DatasetsOnDisk:   config.DatasetsOnDisk,
-			DatasetsLockMmap: config.DatasetsLockMmap,
-			NotifyFull:       config.NotifyFull,
-		}, notify, noverify)
-		// Disable CPU mining
-		engine.SetThreads(-1)
-
-		return engine
+	case ethash.ModeTest:
+		log.Warn("Ethash used in test mode")
+	case ethash.ModeShared:
+		log.Warn("Ethash used in shared mode")
 	}
+	engine := ethash.New(ethash.Config{
+		PowMode:          config.PowMode,
+		CacheDir:         stack.ResolvePath(config.CacheDir),
+		CachesInMem:      config.CachesInMem,
+		CachesOnDisk:     config.CachesOnDisk,
+		CachesLockMmap:   config.CachesLockMmap,
+		DatasetDir:       config.DatasetDir,
+		DatasetsInMem:    config.DatasetsInMem,
+		DatasetsOnDisk:   config.DatasetsOnDisk,
+		DatasetsLockMmap: config.DatasetsLockMmap,
+		NotifyFull:       config.NotifyFull,
+	}, notify, noverify)
+	engine.SetThreads(-1) // Disable CPU mining
 
-	panic("no consensus engine")
+	return engine
 }

@@ -19,6 +19,7 @@ package les
 import (
 	"encoding/binary"
 	"math/big"
+	"math/rand"
 	"testing"
 	"time"
 
@@ -29,6 +30,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/eth/downloader"
 	"github.com/ethereum/go-ethereum/light"
 	"github.com/ethereum/go-ethereum/p2p"
 	"github.com/ethereum/go-ethereum/params"
@@ -44,268 +46,268 @@ func expectResponse(r p2p.MsgReader, msgcode, reqID, bv uint64, data interface{}
 	return p2p.ExpectMsg(r, msgcode, resp{reqID, bv, data})
 }
 
-// // Tests that block headers can be retrieved from a remote chain based on user queries.
-// func TestGetBlockHeadersLes2(t *testing.T) { testGetBlockHeaders(t, 2) }
-// func TestGetBlockHeadersLes3(t *testing.T) { testGetBlockHeaders(t, 3) }
-// func TestGetBlockHeadersLes4(t *testing.T) { testGetBlockHeaders(t, 4) }
+// Tests that block headers can be retrieved from a remote chain based on user queries.
+func TestGetBlockHeadersLes2(t *testing.T) { testGetBlockHeaders(t, 2) }
+func TestGetBlockHeadersLes3(t *testing.T) { testGetBlockHeaders(t, 3) }
+func TestGetBlockHeadersLes4(t *testing.T) { testGetBlockHeaders(t, 4) }
 
-// func testGetBlockHeaders(t *testing.T, protocol int) {
-// 	netconfig := testnetConfig{
-// 		blocks:    downloader.MaxHeaderFetch + 15,
-// 		protocol:  protocol,
-// 		nopruning: true,
-// 	}
-// 	server, _, tearDown := newClientServerEnv(t, netconfig)
-// 	defer tearDown()
+func testGetBlockHeaders(t *testing.T, protocol int) {
+	netconfig := testnetConfig{
+		blocks:    downloader.MaxHeaderFetch + 15,
+		protocol:  protocol,
+		nopruning: true,
+	}
+	server, _, tearDown := newClientServerEnv(t, netconfig)
+	defer tearDown()
 
-// 	rawPeer, closePeer, _ := server.newRawPeer(t, "peer", protocol)
-// 	defer closePeer()
-// 	bc := server.handler.blockchain
+	rawPeer, closePeer, _ := server.newRawPeer(t, "peer", protocol)
+	defer closePeer()
+	bc := server.handler.blockchain
 
-// 	// Create a "random" unknown hash for testing
-// 	var unknown common.Hash
-// 	for i := range unknown {
-// 		unknown[i] = byte(i)
-// 	}
-// 	// Create a batch of tests for various scenarios
-// 	limit := uint64(MaxHeaderFetch)
-// 	tests := []struct {
-// 		query  *GetBlockHeadersData // The query to execute for header retrieval
-// 		expect []common.Hash        // The hashes of the block whose headers are expected
-// 	}{
-// 		// A single random block should be retrievable by hash and number too
-// 		{
-// 			&GetBlockHeadersData{Origin: hashOrNumber{Hash: bc.GetBlockByNumber(limit / 2).Hash()}, Amount: 1},
-// 			[]common.Hash{bc.GetBlockByNumber(limit / 2).Hash()},
-// 		}, {
-// 			&GetBlockHeadersData{Origin: hashOrNumber{Number: limit / 2}, Amount: 1},
-// 			[]common.Hash{bc.GetBlockByNumber(limit / 2).Hash()},
-// 		},
-// 		// Multiple headers should be retrievable in both directions
-// 		{
-// 			&GetBlockHeadersData{Origin: hashOrNumber{Number: limit / 2}, Amount: 3},
-// 			[]common.Hash{
-// 				bc.GetBlockByNumber(limit / 2).Hash(),
-// 				bc.GetBlockByNumber(limit/2 + 1).Hash(),
-// 				bc.GetBlockByNumber(limit/2 + 2).Hash(),
-// 			},
-// 		}, {
-// 			&GetBlockHeadersData{Origin: hashOrNumber{Number: limit / 2}, Amount: 3, Reverse: true},
-// 			[]common.Hash{
-// 				bc.GetBlockByNumber(limit / 2).Hash(),
-// 				bc.GetBlockByNumber(limit/2 - 1).Hash(),
-// 				bc.GetBlockByNumber(limit/2 - 2).Hash(),
-// 			},
-// 		},
-// 		// Multiple headers with skip lists should be retrievable
-// 		{
-// 			&GetBlockHeadersData{Origin: hashOrNumber{Number: limit / 2}, Skip: 3, Amount: 3},
-// 			[]common.Hash{
-// 				bc.GetBlockByNumber(limit / 2).Hash(),
-// 				bc.GetBlockByNumber(limit/2 + 4).Hash(),
-// 				bc.GetBlockByNumber(limit/2 + 8).Hash(),
-// 			},
-// 		}, {
-// 			&GetBlockHeadersData{Origin: hashOrNumber{Number: limit / 2}, Skip: 3, Amount: 3, Reverse: true},
-// 			[]common.Hash{
-// 				bc.GetBlockByNumber(limit / 2).Hash(),
-// 				bc.GetBlockByNumber(limit/2 - 4).Hash(),
-// 				bc.GetBlockByNumber(limit/2 - 8).Hash(),
-// 			},
-// 		},
-// 		// The chain endpoints should be retrievable
-// 		{
-// 			&GetBlockHeadersData{Origin: hashOrNumber{Number: 0}, Amount: 1},
-// 			[]common.Hash{bc.GetBlockByNumber(0).Hash()},
-// 		}, {
-// 			&GetBlockHeadersData{Origin: hashOrNumber{Number: bc.CurrentBlock().NumberU64()}, Amount: 1},
-// 			[]common.Hash{bc.CurrentBlock().Hash()},
-// 		},
-// 		// Ensure protocol limits are honored
-// 		//{
-// 		//	&GetBlockHeadersData{Origin: hashOrNumber{Number: bc.CurrentBlock().NumberU64() - 1}, Amount: limit + 10, Reverse: true},
-// 		//	[]common.Hash{},
-// 		//},
-// 		// Check that requesting more than available is handled gracefully
-// 		{
-// 			&GetBlockHeadersData{Origin: hashOrNumber{Number: bc.CurrentBlock().NumberU64() - 4}, Skip: 3, Amount: 3},
-// 			[]common.Hash{
-// 				bc.GetBlockByNumber(bc.CurrentBlock().NumberU64() - 4).Hash(),
-// 				bc.GetBlockByNumber(bc.CurrentBlock().NumberU64()).Hash(),
-// 			},
-// 		}, {
-// 			&GetBlockHeadersData{Origin: hashOrNumber{Number: 4}, Skip: 3, Amount: 3, Reverse: true},
-// 			[]common.Hash{
-// 				bc.GetBlockByNumber(4).Hash(),
-// 				bc.GetBlockByNumber(0).Hash(),
-// 			},
-// 		},
-// 		// Check that requesting more than available is handled gracefully, even if mid skip
-// 		{
-// 			&GetBlockHeadersData{Origin: hashOrNumber{Number: bc.CurrentBlock().NumberU64() - 4}, Skip: 2, Amount: 3},
-// 			[]common.Hash{
-// 				bc.GetBlockByNumber(bc.CurrentBlock().NumberU64() - 4).Hash(),
-// 				bc.GetBlockByNumber(bc.CurrentBlock().NumberU64() - 1).Hash(),
-// 			},
-// 		}, {
-// 			&GetBlockHeadersData{Origin: hashOrNumber{Number: 4}, Skip: 2, Amount: 3, Reverse: true},
-// 			[]common.Hash{
-// 				bc.GetBlockByNumber(4).Hash(),
-// 				bc.GetBlockByNumber(1).Hash(),
-// 			},
-// 		},
-// 		// Check that non existing headers aren't returned
-// 		{
-// 			&GetBlockHeadersData{Origin: hashOrNumber{Hash: unknown}, Amount: 1},
-// 			[]common.Hash{},
-// 		}, {
-// 			&GetBlockHeadersData{Origin: hashOrNumber{Number: bc.CurrentBlock().NumberU64() + 1}, Amount: 1},
-// 			[]common.Hash{},
-// 		},
-// 	}
-// 	// Run each of the tests and verify the results against the chain
-// 	var reqID uint64
-// 	for i, tt := range tests {
-// 		// Collect the headers to expect in the response
-// 		var headers []*types.Header
-// 		for _, hash := range tt.expect {
-// 			headers = append(headers, bc.GetHeaderByHash(hash))
-// 		}
-// 		// Send the hash request and verify the response
-// 		reqID++
+	// Create a "random" unknown hash for testing
+	var unknown common.Hash
+	for i := range unknown {
+		unknown[i] = byte(i)
+	}
+	// Create a batch of tests for various scenarios
+	limit := uint64(MaxHeaderFetch)
+	tests := []struct {
+		query  *GetBlockHeadersData // The query to execute for header retrieval
+		expect []common.Hash        // The hashes of the block whose headers are expected
+	}{
+		// A single random block should be retrievable by hash and number too
+		{
+			&GetBlockHeadersData{Origin: hashOrNumber{Hash: bc.GetBlockByNumber(limit / 2).Hash()}, Amount: 1},
+			[]common.Hash{bc.GetBlockByNumber(limit / 2).Hash()},
+		}, {
+			&GetBlockHeadersData{Origin: hashOrNumber{Number: limit / 2}, Amount: 1},
+			[]common.Hash{bc.GetBlockByNumber(limit / 2).Hash()},
+		},
+		// Multiple headers should be retrievable in both directions
+		{
+			&GetBlockHeadersData{Origin: hashOrNumber{Number: limit / 2}, Amount: 3},
+			[]common.Hash{
+				bc.GetBlockByNumber(limit / 2).Hash(),
+				bc.GetBlockByNumber(limit/2 + 1).Hash(),
+				bc.GetBlockByNumber(limit/2 + 2).Hash(),
+			},
+		}, {
+			&GetBlockHeadersData{Origin: hashOrNumber{Number: limit / 2}, Amount: 3, Reverse: true},
+			[]common.Hash{
+				bc.GetBlockByNumber(limit / 2).Hash(),
+				bc.GetBlockByNumber(limit/2 - 1).Hash(),
+				bc.GetBlockByNumber(limit/2 - 2).Hash(),
+			},
+		},
+		// Multiple headers with skip lists should be retrievable
+		{
+			&GetBlockHeadersData{Origin: hashOrNumber{Number: limit / 2}, Skip: 3, Amount: 3},
+			[]common.Hash{
+				bc.GetBlockByNumber(limit / 2).Hash(),
+				bc.GetBlockByNumber(limit/2 + 4).Hash(),
+				bc.GetBlockByNumber(limit/2 + 8).Hash(),
+			},
+		}, {
+			&GetBlockHeadersData{Origin: hashOrNumber{Number: limit / 2}, Skip: 3, Amount: 3, Reverse: true},
+			[]common.Hash{
+				bc.GetBlockByNumber(limit / 2).Hash(),
+				bc.GetBlockByNumber(limit/2 - 4).Hash(),
+				bc.GetBlockByNumber(limit/2 - 8).Hash(),
+			},
+		},
+		// The chain endpoints should be retrievable
+		{
+			&GetBlockHeadersData{Origin: hashOrNumber{Number: 0}, Amount: 1},
+			[]common.Hash{bc.GetBlockByNumber(0).Hash()},
+		}, {
+			&GetBlockHeadersData{Origin: hashOrNumber{Number: bc.CurrentBlock().NumberU64()}, Amount: 1},
+			[]common.Hash{bc.CurrentBlock().Hash()},
+		},
+		// Ensure protocol limits are honored
+		//{
+		//	&GetBlockHeadersData{Origin: hashOrNumber{Number: bc.CurrentBlock().NumberU64() - 1}, Amount: limit + 10, Reverse: true},
+		//	[]common.Hash{},
+		//},
+		// Check that requesting more than available is handled gracefully
+		{
+			&GetBlockHeadersData{Origin: hashOrNumber{Number: bc.CurrentBlock().NumberU64() - 4}, Skip: 3, Amount: 3},
+			[]common.Hash{
+				bc.GetBlockByNumber(bc.CurrentBlock().NumberU64() - 4).Hash(),
+				bc.GetBlockByNumber(bc.CurrentBlock().NumberU64()).Hash(),
+			},
+		}, {
+			&GetBlockHeadersData{Origin: hashOrNumber{Number: 4}, Skip: 3, Amount: 3, Reverse: true},
+			[]common.Hash{
+				bc.GetBlockByNumber(4).Hash(),
+				bc.GetBlockByNumber(0).Hash(),
+			},
+		},
+		// Check that requesting more than available is handled gracefully, even if mid skip
+		{
+			&GetBlockHeadersData{Origin: hashOrNumber{Number: bc.CurrentBlock().NumberU64() - 4}, Skip: 2, Amount: 3},
+			[]common.Hash{
+				bc.GetBlockByNumber(bc.CurrentBlock().NumberU64() - 4).Hash(),
+				bc.GetBlockByNumber(bc.CurrentBlock().NumberU64() - 1).Hash(),
+			},
+		}, {
+			&GetBlockHeadersData{Origin: hashOrNumber{Number: 4}, Skip: 2, Amount: 3, Reverse: true},
+			[]common.Hash{
+				bc.GetBlockByNumber(4).Hash(),
+				bc.GetBlockByNumber(1).Hash(),
+			},
+		},
+		// Check that non existing headers aren't returned
+		{
+			&GetBlockHeadersData{Origin: hashOrNumber{Hash: unknown}, Amount: 1},
+			[]common.Hash{},
+		}, {
+			&GetBlockHeadersData{Origin: hashOrNumber{Number: bc.CurrentBlock().NumberU64() + 1}, Amount: 1},
+			[]common.Hash{},
+		},
+	}
+	// Run each of the tests and verify the results against the chain
+	var reqID uint64
+	for i, tt := range tests {
+		// Collect the headers to expect in the response
+		var headers []*types.Header
+		for _, hash := range tt.expect {
+			headers = append(headers, bc.GetHeaderByHash(hash))
+		}
+		// Send the hash request and verify the response
+		reqID++
 
-// 		sendRequest(rawPeer.app, GetBlockHeadersMsg, reqID, tt.query)
-// 		if err := expectResponse(rawPeer.app, BlockHeadersMsg, reqID, testBufLimit, headers); err != nil {
-// 			t.Errorf("test %d: headers mismatch: %v", i, err)
-// 		}
-// 	}
-// }
+		sendRequest(rawPeer.app, GetBlockHeadersMsg, reqID, tt.query)
+		if err := expectResponse(rawPeer.app, BlockHeadersMsg, reqID, testBufLimit, headers); err != nil {
+			t.Errorf("test %d: headers mismatch: %v", i, err)
+		}
+	}
+}
 
-// // Tests that block contents can be retrieved from a remote chain based on their hashes.
-// func TestGetBlockBodiesLes2(t *testing.T) { testGetBlockBodies(t, 2) }
-// func TestGetBlockBodiesLes3(t *testing.T) { testGetBlockBodies(t, 3) }
-// func TestGetBlockBodiesLes4(t *testing.T) { testGetBlockBodies(t, 4) }
+// Tests that block contents can be retrieved from a remote chain based on their hashes.
+func TestGetBlockBodiesLes2(t *testing.T) { testGetBlockBodies(t, 2) }
+func TestGetBlockBodiesLes3(t *testing.T) { testGetBlockBodies(t, 3) }
+func TestGetBlockBodiesLes4(t *testing.T) { testGetBlockBodies(t, 4) }
 
-// func testGetBlockBodies(t *testing.T, protocol int) {
-// 	netconfig := testnetConfig{
-// 		blocks:    downloader.MaxHeaderFetch + 15,
-// 		protocol:  protocol,
-// 		nopruning: true,
-// 	}
-// 	server, _, tearDown := newClientServerEnv(t, netconfig)
-// 	defer tearDown()
+func testGetBlockBodies(t *testing.T, protocol int) {
+	netconfig := testnetConfig{
+		blocks:    downloader.MaxHeaderFetch + 15,
+		protocol:  protocol,
+		nopruning: true,
+	}
+	server, _, tearDown := newClientServerEnv(t, netconfig)
+	defer tearDown()
 
-// 	rawPeer, closePeer, _ := server.newRawPeer(t, "peer", protocol)
-// 	defer closePeer()
+	rawPeer, closePeer, _ := server.newRawPeer(t, "peer", protocol)
+	defer closePeer()
 
-// 	bc := server.handler.blockchain
+	bc := server.handler.blockchain
 
-// 	// Create a batch of tests for various scenarios
-// 	limit := MaxBodyFetch
-// 	tests := []struct {
-// 		random    int           // Number of blocks to fetch randomly from the chain
-// 		explicit  []common.Hash // Explicitly requested blocks
-// 		available []bool        // Availability of explicitly requested blocks
-// 		expected  int           // Total number of existing blocks to expect
-// 	}{
-// 		{1, nil, nil, 1},         // A single random block should be retrievable
-// 		{10, nil, nil, 10},       // Multiple random blocks should be retrievable
-// 		{limit, nil, nil, limit}, // The maximum possible blocks should be retrievable
-// 		//{limit + 1, nil, nil, limit},                                  // No more than the possible block count should be returned
-// 		{0, []common.Hash{bc.Genesis().Hash()}, []bool{true}, 1},      // The genesis block should be retrievable
-// 		{0, []common.Hash{bc.CurrentBlock().Hash()}, []bool{true}, 1}, // The chains head block should be retrievable
-// 		{0, []common.Hash{{}}, []bool{false}, 0},                      // A non existent block should not be returned
+	// Create a batch of tests for various scenarios
+	limit := MaxBodyFetch
+	tests := []struct {
+		random    int           // Number of blocks to fetch randomly from the chain
+		explicit  []common.Hash // Explicitly requested blocks
+		available []bool        // Availability of explicitly requested blocks
+		expected  int           // Total number of existing blocks to expect
+	}{
+		{1, nil, nil, 1},         // A single random block should be retrievable
+		{10, nil, nil, 10},       // Multiple random blocks should be retrievable
+		{limit, nil, nil, limit}, // The maximum possible blocks should be retrievable
+		//{limit + 1, nil, nil, limit},                                  // No more than the possible block count should be returned
+		{0, []common.Hash{bc.Genesis().Hash()}, []bool{true}, 1},      // The genesis block should be retrievable
+		{0, []common.Hash{bc.CurrentBlock().Hash()}, []bool{true}, 1}, // The chains head block should be retrievable
+		{0, []common.Hash{{}}, []bool{false}, 0},                      // A non existent block should not be returned
 
-// 		// Existing and non-existing blocks interleaved should not cause problems
-// 		{0, []common.Hash{
-// 			{},
-// 			bc.GetBlockByNumber(1).Hash(),
-// 			{},
-// 			bc.GetBlockByNumber(10).Hash(),
-// 			{},
-// 			bc.GetBlockByNumber(100).Hash(),
-// 			{},
-// 		}, []bool{false, true, false, true, false, true, false}, 3},
-// 	}
-// 	// Run each of the tests and verify the results against the chain
-// 	var reqID uint64
-// 	for i, tt := range tests {
-// 		// Collect the hashes to request, and the response to expect
-// 		var hashes []common.Hash
-// 		seen := make(map[int64]bool)
-// 		var bodies []*types.Body
+		// Existing and non-existing blocks interleaved should not cause problems
+		{0, []common.Hash{
+			{},
+			bc.GetBlockByNumber(1).Hash(),
+			{},
+			bc.GetBlockByNumber(10).Hash(),
+			{},
+			bc.GetBlockByNumber(100).Hash(),
+			{},
+		}, []bool{false, true, false, true, false, true, false}, 3},
+	}
+	// Run each of the tests and verify the results against the chain
+	var reqID uint64
+	for i, tt := range tests {
+		// Collect the hashes to request, and the response to expect
+		var hashes []common.Hash
+		seen := make(map[int64]bool)
+		var bodies []*types.Body
 
-// 		for j := 0; j < tt.random; j++ {
-// 			for {
-// 				num := rand.Int63n(int64(bc.CurrentBlock().NumberU64()))
-// 				if !seen[num] {
-// 					seen[num] = true
+		for j := 0; j < tt.random; j++ {
+			for {
+				num := rand.Int63n(int64(bc.CurrentBlock().NumberU64()))
+				if !seen[num] {
+					seen[num] = true
 
-// 					block := bc.GetBlockByNumber(uint64(num))
-// 					hashes = append(hashes, block.Hash())
-// 					if len(bodies) < tt.expected {
-// 						bodies = append(bodies, &types.Body{Transactions: block.Transactions(), Uncles: block.Uncles()})
-// 					}
-// 					break
-// 				}
-// 			}
-// 		}
-// 		for j, hash := range tt.explicit {
-// 			hashes = append(hashes, hash)
-// 			if tt.available[j] && len(bodies) < tt.expected {
-// 				block := bc.GetBlockByHash(hash)
-// 				bodies = append(bodies, &types.Body{Transactions: block.Transactions(), Uncles: block.Uncles()})
-// 			}
-// 		}
-// 		reqID++
+					block := bc.GetBlockByNumber(uint64(num))
+					hashes = append(hashes, block.Hash())
+					if len(bodies) < tt.expected {
+						bodies = append(bodies, &types.Body{Transactions: block.Transactions(), Uncles: block.Uncles()})
+					}
+					break
+				}
+			}
+		}
+		for j, hash := range tt.explicit {
+			hashes = append(hashes, hash)
+			if tt.available[j] && len(bodies) < tt.expected {
+				block := bc.GetBlockByHash(hash)
+				bodies = append(bodies, &types.Body{Transactions: block.Transactions(), Uncles: block.Uncles()})
+			}
+		}
+		reqID++
 
-// 		// Send the hash request and verify the response
-// 		sendRequest(rawPeer.app, GetBlockBodiesMsg, reqID, hashes)
-// 		if err := expectResponse(rawPeer.app, BlockBodiesMsg, reqID, testBufLimit, bodies); err != nil {
-// 			t.Errorf("test %d: bodies mismatch: %v", i, err)
-// 		}
-// 	}
-// }
+		// Send the hash request and verify the response
+		sendRequest(rawPeer.app, GetBlockBodiesMsg, reqID, hashes)
+		if err := expectResponse(rawPeer.app, BlockBodiesMsg, reqID, testBufLimit, bodies); err != nil {
+			t.Errorf("test %d: bodies mismatch: %v", i, err)
+		}
+	}
+}
 
-// // Tests that the contract codes can be retrieved based on account addresses.
-// func TestGetCodeLes2(t *testing.T) { testGetCode(t, 2) }
-// func TestGetCodeLes3(t *testing.T) { testGetCode(t, 3) }
-// func TestGetCodeLes4(t *testing.T) { testGetCode(t, 4) }
+// Tests that the contract codes can be retrieved based on account addresses.
+func TestGetCodeLes2(t *testing.T) { testGetCode(t, 2) }
+func TestGetCodeLes3(t *testing.T) { testGetCode(t, 3) }
+func TestGetCodeLes4(t *testing.T) { testGetCode(t, 4) }
 
-// func testGetCode(t *testing.T, protocol int) {
-// 	// Assemble the test environment
-// 	netconfig := testnetConfig{
-// 		blocks:    4,
-// 		protocol:  protocol,
-// 		nopruning: true,
-// 	}
-// 	server, _, tearDown := newClientServerEnv(t, netconfig)
-// 	defer tearDown()
+func testGetCode(t *testing.T, protocol int) {
+	// Assemble the test environment
+	netconfig := testnetConfig{
+		blocks:    4,
+		protocol:  protocol,
+		nopruning: true,
+	}
+	server, _, tearDown := newClientServerEnv(t, netconfig)
+	defer tearDown()
 
-// 	rawPeer, closePeer, _ := server.newRawPeer(t, "peer", protocol)
-// 	defer closePeer()
+	rawPeer, closePeer, _ := server.newRawPeer(t, "peer", protocol)
+	defer closePeer()
 
-// 	bc := server.handler.blockchain
+	bc := server.handler.blockchain
 
-// 	var codereqs []*CodeReq
-// 	var codes [][]byte
-// 	for i := uint64(0); i <= bc.CurrentBlock().NumberU64(); i++ {
-// 		header := bc.GetHeaderByNumber(i)
-// 		req := &CodeReq{
-// 			BHash:  header.Hash(),
-// 			AccKey: crypto.Keccak256(testContractAddr[:]),
-// 		}
-// 		codereqs = append(codereqs, req)
-// 		if i >= testContractDeployed {
-// 			codes = append(codes, testContractCodeDeployed)
-// 		}
-// 	}
+	var codereqs []*CodeReq
+	var codes [][]byte
+	for i := uint64(0); i <= bc.CurrentBlock().NumberU64(); i++ {
+		header := bc.GetHeaderByNumber(i)
+		req := &CodeReq{
+			BHash:  header.Hash(),
+			AccKey: crypto.Keccak256(testContractAddr[:]),
+		}
+		codereqs = append(codereqs, req)
+		if i >= testContractDeployed {
+			codes = append(codes, testContractCodeDeployed)
+		}
+	}
 
-// 	sendRequest(rawPeer.app, GetCodeMsg, 42, codereqs)
-// 	if err := expectResponse(rawPeer.app, CodeMsg, 42, testBufLimit, codes); err != nil {
-// 		t.Errorf("codes mismatch: %v", err)
-// 	}
-// }
+	sendRequest(rawPeer.app, GetCodeMsg, 42, codereqs)
+	if err := expectResponse(rawPeer.app, CodeMsg, 42, testBufLimit, codes); err != nil {
+		t.Errorf("codes mismatch: %v", err)
+	}
+}
 
 // Tests that the stale contract codes can't be retrieved based on account addresses.
 func TestGetStaleCodeLes2(t *testing.T) { testGetStaleCode(t, 2) }

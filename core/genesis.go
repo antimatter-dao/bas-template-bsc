@@ -317,7 +317,7 @@ func GenesisBlockForTesting(db ethdb.Database, addr common.Address, balance *big
 // DefaultTestUsageGenesisBlock returns the test usage mainnet net genesis block.
 func DefaultTestUsageGenesisBlock() *Genesis {
 	return &Genesis{
-		Config:     params.TestUsageChainConfig,
+		Config:     params.AllEthashProtocolChanges,
 		Nonce:      66,
 		ExtraData:  hexutil.MustDecode("0x11bbe8db4e347b4e8c937c1c8370e4b5ed33adb3db69cbdb7a38e1e50b1b82fa"),
 		GasLimit:   5000,
