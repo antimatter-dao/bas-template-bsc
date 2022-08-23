@@ -86,7 +86,7 @@ func NewSimulatedBackendWithDatabase(database ethdb.Database, alloc core.Genesis
 		config:     genesis.Config,
 		events:     filters.NewEventSystem(&filterBackend{database, blockchain}, false),
 	}
-	backend.rollback()
+	backend.rollback(blockchain.CurrentBlock())
 	return backend
 }
 
@@ -112,7 +112,9 @@ func (b *SimulatedBackend) Commit() {
 	if _, err := b.blockchain.InsertChain([]*types.Block{b.pendingBlock}); err != nil {
 		panic(err) // This cannot happen unless the simulator is wrong, fail in that case
 	}
-	b.rollback()
+	// Using the last inserted block here makes it possible to build on a side
+	// chain after a fork.
+	b.rollback(b.pendingBlock)
 }
 
 // Rollback aborts all pending transactions, reverting to the last committed state.
@@ -120,11 +122,11 @@ func (b *SimulatedBackend) Rollback() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.rollback()
+	b.rollback(b.blockchain.CurrentBlock())
 }
 
-func (b *SimulatedBackend) rollback() {
-	blocks, _ := core.GenerateChain(b.config, b.blockchain.CurrentBlock(), ethash.NewFaker(), b.database, 1, func(int, *core.BlockGen) {})
+func (b *SimulatedBackend) rollback(parent *types.Block) {
+	blocks, _ := core.GenerateChain(b.config, parent, ethash.NewFaker(), b.database, 1, func(int, *core.BlockGen) {})
 
 	b.pendingBlock = blocks[0]
 	b.pendingState, _ = state.New(b.pendingBlock.Root(), b.blockchain.StateCache(), nil)
@@ -135,7 +137,7 @@ func (b *SimulatedBackend) stateByBlockNumber(ctx context.Context, blockNumber *
 	if blockNumber == nil || blockNumber.Cmp(b.blockchain.CurrentBlock().Number()) == 0 {
 		return b.blockchain.State()
 	}
-	block, err := b.blockByNumberNoLock(ctx, blockNumber)
+	block, err := b.blockByNumber(ctx, blockNumber)
 	if err != nil {
 		return nil, err
 	}
@@ -201,6 +203,9 @@ func (b *SimulatedBackend) TransactionReceipt(ctx context.Context, txHash common
 	defer b.mu.Unlock()
 
 	receipt, _, _, _ := rawdb.ReadReceipt(b.database, txHash, b.config)
+	if receipt == nil {
+		return nil, ethereum.NotFound
+	}
 	return receipt, nil
 }
 
@@ -228,6 +233,11 @@ func (b *SimulatedBackend) BlockByHash(ctx context.Context, hash common.Hash) (*
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	return b.blockByHash(ctx, hash)
+}
+
+// blockByHash retrieves a block based on the block hash without Locking.
+func (b *SimulatedBackend) blockByHash(ctx context.Context, hash common.Hash) (*types.Block, error) {
 	if hash == b.pendingBlock.Hash() {
 		return b.pendingBlock, nil
 	}
@@ -246,12 +256,12 @@ func (b *SimulatedBackend) BlockByNumber(ctx context.Context, number *big.Int) (
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	return b.blockByNumberNoLock(ctx, number)
+	return b.blockByNumber(ctx, number)
 }
 
-// blockByNumberNoLock retrieves a block from the database by number, caching it
+// blockByNumber retrieves a block from the database by number, caching it
 // (associated with its hash) if found without Lock.
-func (b *SimulatedBackend) blockByNumberNoLock(ctx context.Context, number *big.Int) (*types.Block, error) {
+func (b *SimulatedBackend) blockByNumber(ctx context.Context, number *big.Int) (*types.Block, error) {
 	if number == nil || number.Cmp(b.pendingBlock.Number()) == 0 {
 		return b.blockchain.CurrentBlock(), nil
 	}
@@ -554,24 +564,26 @@ func (b *SimulatedBackend) callContract(ctx context.Context, call ethereum.CallM
 }
 
 // SendTransaction updates the pending block to include the given transaction.
-// It panics if the transaction is invalid.
 func (b *SimulatedBackend) SendTransaction(ctx context.Context, tx *types.Transaction) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	// Check transaction validity.
-	block := b.blockchain.CurrentBlock()
+	// Get the last block
+	block, err := b.blockByHash(ctx, b.pendingBlock.ParentHash())
+	if err != nil {
+		return fmt.Errorf("could not fetch parent")
+	}
+	// Check transaction validity
 	signer := types.MakeSigner(b.blockchain.Config(), block.Number())
 	sender, err := types.Sender(signer, tx)
 	if err != nil {
-		panic(fmt.Errorf("invalid transaction: %v", err))
+		return fmt.Errorf("invalid transaction: %v", err)
 	}
 	nonce := b.pendingState.GetNonce(sender)
 	if tx.Nonce() != nonce {
-		panic(fmt.Errorf("invalid transaction nonce: got %d, want %d", tx.Nonce(), nonce))
+		return fmt.Errorf("invalid transaction nonce: got %d, want %d", tx.Nonce(), nonce)
 	}
-
-	// Include tx in chain.
+	// Include tx in chain
 	blocks, _ := core.GenerateChain(b.config, block, ethash.NewFaker(), b.database, 1, func(number int, block *core.BlockGen) {
 		for _, tx := range b.pendingBlock.Transactions() {
 			block.AddTxWithChain(b.blockchain, tx)
