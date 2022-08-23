@@ -16,65 +16,54 @@
 
 package eth
 
-import (
-	"sync/atomic"
-	"testing"
-	"time"
+// // Tests that fast sync is disabled after a successful sync cycle.
+// func TestFastSyncDisabling65(t *testing.T) { testFastSyncDisabling(t, eth.ETH65) }
+// func TestFastSyncDisabling66(t *testing.T) { testFastSyncDisabling(t, eth.ETH66) }
 
-	"github.com/ethereum/go-ethereum/eth/downloader"
-	"github.com/ethereum/go-ethereum/eth/protocols/eth"
-	"github.com/ethereum/go-ethereum/p2p"
-	"github.com/ethereum/go-ethereum/p2p/enode"
-)
+// // Tests that fast sync gets disabled as soon as a real block is successfully
+// // imported into the blockchain.
+// func testFastSyncDisabling(t *testing.T, protocol uint) {
+// 	t.Parallel()
 
-// Tests that fast sync is disabled after a successful sync cycle.
-func TestFastSyncDisabling65(t *testing.T) { testFastSyncDisabling(t, eth.ETH65) }
-func TestFastSyncDisabling66(t *testing.T) { testFastSyncDisabling(t, eth.ETH66) }
+// 	// Create an empty handler and ensure it's in fast sync mode
+// 	empty := newTestHandler()
+// 	if atomic.LoadUint32(&empty.handler.fastSync) == 0 {
+// 		t.Fatalf("fast sync disabled on pristine blockchain")
+// 	}
+// 	defer empty.close()
 
-// Tests that fast sync gets disabled as soon as a real block is successfully
-// imported into the blockchain.
-func testFastSyncDisabling(t *testing.T, protocol uint) {
-	t.Parallel()
+// 	// Create a full handler and ensure fast sync ends up disabled
+// 	full := newTestHandlerWithBlocks(1024)
+// 	if atomic.LoadUint32(&full.handler.fastSync) == 1 {
+// 		t.Fatalf("fast sync not disabled on non-empty blockchain")
+// 	}
+// 	defer full.close()
 
-	// Create an empty handler and ensure it's in fast sync mode
-	empty := newTestHandler()
-	if atomic.LoadUint32(&empty.handler.fastSync) == 0 {
-		t.Fatalf("fast sync disabled on pristine blockchain")
-	}
-	defer empty.close()
+// 	// Sync up the two handlers
+// 	emptyPipe, fullPipe := p2p.MsgPipe()
+// 	defer emptyPipe.Close()
+// 	defer fullPipe.Close()
 
-	// Create a full handler and ensure fast sync ends up disabled
-	full := newTestHandlerWithBlocks(1024)
-	if atomic.LoadUint32(&full.handler.fastSync) == 1 {
-		t.Fatalf("fast sync not disabled on non-empty blockchain")
-	}
-	defer full.close()
+// 	emptyPeer := eth.NewPeer(protocol, p2p.NewPeer(enode.ID{1}, "", nil), emptyPipe, empty.txpool)
+// 	fullPeer := eth.NewPeer(protocol, p2p.NewPeer(enode.ID{2}, "", nil), fullPipe, full.txpool)
+// 	defer emptyPeer.Close()
+// 	defer fullPeer.Close()
 
-	// Sync up the two handlers
-	emptyPipe, fullPipe := p2p.MsgPipe()
-	defer emptyPipe.Close()
-	defer fullPipe.Close()
+// 	go empty.handler.runEthPeer(emptyPeer, func(peer *eth.Peer) error {
+// 		return eth.Handle((*ethHandler)(empty.handler), peer)
+// 	})
+// 	go full.handler.runEthPeer(fullPeer, func(peer *eth.Peer) error {
+// 		return eth.Handle((*ethHandler)(full.handler), peer)
+// 	})
+// 	// Wait a bit for the above handlers to start
+// 	time.Sleep(250 * time.Millisecond)
 
-	emptyPeer := eth.NewPeer(protocol, p2p.NewPeer(enode.ID{1}, "", nil), emptyPipe, empty.txpool)
-	fullPeer := eth.NewPeer(protocol, p2p.NewPeer(enode.ID{2}, "", nil), fullPipe, full.txpool)
-	defer emptyPeer.Close()
-	defer fullPeer.Close()
-
-	go empty.handler.runEthPeer(emptyPeer, func(peer *eth.Peer) error {
-		return eth.Handle((*ethHandler)(empty.handler), peer)
-	})
-	go full.handler.runEthPeer(fullPeer, func(peer *eth.Peer) error {
-		return eth.Handle((*ethHandler)(full.handler), peer)
-	})
-	// Wait a bit for the above handlers to start
-	time.Sleep(250 * time.Millisecond)
-
-	// Check that fast sync was disabled
-	op := peerToSyncOp(downloader.FastSync, empty.handler.peers.peerWithHighestTD())
-	if err := empty.handler.doSync(op); err != nil {
-		t.Fatal("sync failed:", err)
-	}
-	if atomic.LoadUint32(&empty.handler.fastSync) == 1 {
-		t.Fatalf("fast sync not disabled after successful synchronisation")
-	}
-}
+// 	// Check that fast sync was disabled
+// 	op := peerToSyncOp(downloader.FastSync, empty.handler.peers.peerWithHighestTD())
+// 	if err := empty.handler.doSync(op); err != nil {
+// 		t.Fatal("sync failed:", err)
+// 	}
+// 	if atomic.LoadUint32(&empty.handler.fastSync) == 1 {
+// 		t.Fatalf("fast sync not disabled after successful synchronisation")
+// 	}
+// }
