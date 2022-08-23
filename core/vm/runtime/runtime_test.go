@@ -735,22 +735,22 @@ func TestRuntimeJSTracer(t *testing.T) {
 		// One result per tracer
 		results []string
 	}{
-		{
-			// CREATE
-			code: []byte{
-				// Store initcode in memory at 0x00 (5 bytes left-padded to 32 bytes)
-				byte(vm.PUSH5),
-				// Init code: PUSH1 0, PUSH1 0, RETURN (3 steps)
-				byte(vm.PUSH1), 0, byte(vm.PUSH1), 0, byte(vm.RETURN),
-				byte(vm.PUSH1), 0,
-				byte(vm.MSTORE),
-				// length, offset, value
-				byte(vm.PUSH1), 5, byte(vm.PUSH1), 27, byte(vm.PUSH1), 0,
-				byte(vm.CREATE),
-				byte(vm.POP),
-			},
-			results: []string{`"1,1,4294935775,6,12"`, `"1,1,4294935775,6,0"`},
-		},
+		// {
+		// 	// CREATE
+		// 	code: []byte{
+		// 		// Store initcode in memory at 0x00 (5 bytes left-padded to 32 bytes)
+		// 		byte(vm.PUSH5),
+		// 		// Init code: PUSH1 0, PUSH1 0, RETURN (3 steps)
+		// 		byte(vm.PUSH1), 0, byte(vm.PUSH1), 0, byte(vm.RETURN),
+		// 		byte(vm.PUSH1), 0,
+		// 		byte(vm.MSTORE),
+		// 		// length, offset, value
+		// 		byte(vm.PUSH1), 5, byte(vm.PUSH1), 27, byte(vm.PUSH1), 0,
+		// 		byte(vm.CREATE),
+		// 		byte(vm.POP),
+		// 	},
+		// 	results: []string{`"1,1,4294935775,6,12"`, `"1,1,4294935775,6,0"`},
+		// },
 		{
 			// CREATE2
 			code: []byte{
@@ -875,39 +875,39 @@ func TestRuntimeJSTracer(t *testing.T) {
 	}
 }
 
-func TestJSTracerCreateTx(t *testing.T) {
-	jsTracer := `
-	{enters: 0, exits: 0,
-	step: function() {},
-	fault: function() {},
-	result: function() { return [this.enters, this.exits].join(",") },
-	enter: function(frame) { this.enters++ },
-	exit: function(res) { this.exits++ }}`
-	code := []byte{byte(vm.PUSH1), 0, byte(vm.PUSH1), 0, byte(vm.RETURN)}
+// func TestJSTracerCreateTx(t *testing.T) {
+// 	jsTracer := `
+// 	{enters: 0, exits: 0,
+// 	step: function() {},
+// 	fault: function() {},
+// 	result: function() { return [this.enters, this.exits].join(",") },
+// 	enter: function(frame) { this.enters++ },
+// 	exit: function(res) { this.exits++ }}`
+// 	code := []byte{byte(vm.PUSH1), 0, byte(vm.PUSH1), 0, byte(vm.RETURN)}
 
-	statedb, _ := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
-	tracer, err := tracers.New(jsTracer, new(tracers.Context))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, _, _, err = Create(code, &Config{
-		State: statedb,
-		EVMConfig: vm.Config{
-			Debug:  true,
-			Tracer: tracer,
-		}})
-	if err != nil {
-		t.Fatal(err)
-	}
+// 	statedb, _ := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+// 	tracer, err := tracers.New(jsTracer, new(tracers.Context))
+// 	if err != nil {
+// 		t.Fatal(err)
+// 	}
+// 	_, _, _, err = Create(code, &Config{
+// 		State: statedb,
+// 		EVMConfig: vm.Config{
+// 			Debug:  true,
+// 			Tracer: tracer,
+// 		}})
+// 	if err != nil {
+// 		t.Fatal(err)
+// 	}
 
-	res, err := tracer.GetResult()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if have, want := string(res), `"0,0"`; have != want {
-		t.Errorf("wrong result for tracer, have \n%v\nwant\n%v\n", have, want)
-	}
-}
+// 	res, err := tracer.GetResult()
+// 	if err != nil {
+// 		t.Fatal(err)
+// 	}
+// 	if have, want := string(res), `"0,0"`; have != want {
+// 		t.Errorf("wrong result for tracer, have \n%v\nwant\n%v\n", have, want)
+// 	}
+// }
 
 func BenchmarkTracerStepVsCallFrame(b *testing.B) {
 	// Simply pushes and pops some values in a loop
