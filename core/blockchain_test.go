@@ -1045,177 +1045,177 @@ func TestChainTxReorgs(t *testing.T) {
 	}
 }
 
-func TestLogReorgs(t *testing.T) {
-	var (
-		key1, _ = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
-		addr1   = crypto.PubkeyToAddress(key1.PublicKey)
-		db      = rawdb.NewMemoryDatabase()
-		// this code generates a log
-		code    = common.Hex2Bytes("60606040525b7f24ec1d3ff24c2f6ff210738839dbc339cd45a5294d85c79361016243157aae7b60405180905060405180910390a15b600a8060416000396000f360606040526008565b00")
-		gspec   = &Genesis{Config: params.TestChainConfig, Alloc: GenesisAlloc{addr1: {Balance: big.NewInt(10000000000000)}}}
-		genesis = gspec.MustCommit(db)
-		signer  = types.LatestSigner(gspec.Config)
-	)
+// func TestLogReorgs(t *testing.T) {
+// 	var (
+// 		key1, _ = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+// 		addr1   = crypto.PubkeyToAddress(key1.PublicKey)
+// 		db      = rawdb.NewMemoryDatabase()
+// 		// this code generates a log
+// 		code    = common.Hex2Bytes("60606040525b7f24ec1d3ff24c2f6ff210738839dbc339cd45a5294d85c79361016243157aae7b60405180905060405180910390a15b600a8060416000396000f360606040526008565b00")
+// 		gspec   = &Genesis{Config: params.TestChainConfig, Alloc: GenesisAlloc{addr1: {Balance: big.NewInt(10000000000000)}}}
+// 		genesis = gspec.MustCommit(db)
+// 		signer  = types.LatestSigner(gspec.Config)
+// 	)
 
-	blockchain, _ := NewBlockChain(db, nil, gspec.Config, ethash.NewFaker(), vm.Config{}, nil, nil)
-	defer blockchain.Stop()
+// 	blockchain, _ := NewBlockChain(db, nil, gspec.Config, ethash.NewFaker(), vm.Config{}, nil, nil)
+// 	defer blockchain.Stop()
 
-	rmLogsCh := make(chan RemovedLogsEvent)
-	blockchain.SubscribeRemovedLogsEvent(rmLogsCh)
-	chain, _ := GenerateChain(params.TestChainConfig, genesis, ethash.NewFaker(), db, 2, func(i int, gen *BlockGen) {
-		if i == 1 {
-			tx, err := types.SignTx(types.NewContractCreation(gen.TxNonce(addr1), new(big.Int), 1000000, new(big.Int), code), signer, key1)
-			if err != nil {
-				t.Fatalf("failed to create tx: %v", err)
-			}
-			gen.AddTx(tx)
-		}
-	})
-	if _, err := blockchain.InsertChain(chain); err != nil {
-		t.Fatalf("failed to insert chain: %v", err)
-	}
+// 	rmLogsCh := make(chan RemovedLogsEvent)
+// 	blockchain.SubscribeRemovedLogsEvent(rmLogsCh)
+// 	chain, _ := GenerateChain(params.TestChainConfig, genesis, ethash.NewFaker(), db, 2, func(i int, gen *BlockGen) {
+// 		if i == 1 {
+// 			tx, err := types.SignTx(types.NewContractCreation(gen.TxNonce(addr1), new(big.Int), 1000000, new(big.Int), code), signer, key1)
+// 			if err != nil {
+// 				t.Fatalf("failed to create tx: %v", err)
+// 			}
+// 			gen.AddTx(tx)
+// 		}
+// 	})
+// 	if _, err := blockchain.InsertChain(chain); err != nil {
+// 		t.Fatalf("failed to insert chain: %v", err)
+// 	}
 
-	chain, _ = GenerateChain(params.TestChainConfig, genesis, ethash.NewFaker(), db, 3, func(i int, gen *BlockGen) {})
-	done := make(chan struct{})
-	go func() {
-		ev := <-rmLogsCh
-		if len(ev.Logs) == 0 {
-			t.Error("expected logs")
-		}
-		close(done)
-	}()
-	if _, err := blockchain.InsertChain(chain); err != nil {
-		t.Fatalf("failed to insert forked chain: %v", err)
-	}
-	timeout := time.NewTimer(1 * time.Second)
-	defer timeout.Stop()
-	select {
-	case <-done:
-	case <-timeout.C:
-		t.Fatal("Timeout. There is no RemovedLogsEvent has been sent.")
-	}
-}
+// 	chain, _ = GenerateChain(params.TestChainConfig, genesis, ethash.NewFaker(), db, 3, func(i int, gen *BlockGen) {})
+// 	done := make(chan struct{})
+// 	go func() {
+// 		ev := <-rmLogsCh
+// 		if len(ev.Logs) == 0 {
+// 			t.Error("expected logs")
+// 		}
+// 		close(done)
+// 	}()
+// 	if _, err := blockchain.InsertChain(chain); err != nil {
+// 		t.Fatalf("failed to insert forked chain: %v", err)
+// 	}
+// 	timeout := time.NewTimer(1 * time.Second)
+// 	defer timeout.Stop()
+// 	select {
+// 	case <-done:
+// 	case <-timeout.C:
+// 		t.Fatal("Timeout. There is no RemovedLogsEvent has been sent.")
+// 	}
+// }
 
 // This EVM code generates a log when the contract is created.
 var logCode = common.Hex2Bytes("60606040525b7f24ec1d3ff24c2f6ff210738839dbc339cd45a5294d85c79361016243157aae7b60405180905060405180910390a15b600a8060416000396000f360606040526008565b00")
 
-// This test checks that log events and RemovedLogsEvent are sent
-// when the chain reorganizes.
-func TestLogRebirth(t *testing.T) {
-	var (
-		key1, _       = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
-		addr1         = crypto.PubkeyToAddress(key1.PublicKey)
-		db            = rawdb.NewMemoryDatabase()
-		gspec         = &Genesis{Config: params.TestChainConfig, Alloc: GenesisAlloc{addr1: {Balance: big.NewInt(10000000000000)}}}
-		genesis       = gspec.MustCommit(db)
-		signer        = types.LatestSigner(gspec.Config)
-		engine        = ethash.NewFaker()
-		blockchain, _ = NewBlockChain(db, nil, gspec.Config, engine, vm.Config{}, nil, nil)
-	)
+// // This test checks that log events and RemovedLogsEvent are sent
+// // when the chain reorganizes.
+// func TestLogRebirth(t *testing.T) {
+// 	var (
+// 		key1, _       = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+// 		addr1         = crypto.PubkeyToAddress(key1.PublicKey)
+// 		db            = rawdb.NewMemoryDatabase()
+// 		gspec         = &Genesis{Config: params.TestChainConfig, Alloc: GenesisAlloc{addr1: {Balance: big.NewInt(10000000000000)}}}
+// 		genesis       = gspec.MustCommit(db)
+// 		signer        = types.LatestSigner(gspec.Config)
+// 		engine        = ethash.NewFaker()
+// 		blockchain, _ = NewBlockChain(db, nil, gspec.Config, engine, vm.Config{}, nil, nil)
+// 	)
 
-	defer blockchain.Stop()
+// 	defer blockchain.Stop()
 
-	// The event channels.
-	newLogCh := make(chan []*types.Log, 10)
-	rmLogsCh := make(chan RemovedLogsEvent, 10)
-	blockchain.SubscribeLogsEvent(newLogCh)
-	blockchain.SubscribeRemovedLogsEvent(rmLogsCh)
+// 	// The event channels.
+// 	newLogCh := make(chan []*types.Log, 10)
+// 	rmLogsCh := make(chan RemovedLogsEvent, 10)
+// 	blockchain.SubscribeLogsEvent(newLogCh)
+// 	blockchain.SubscribeRemovedLogsEvent(rmLogsCh)
 
-	// This chain contains a single log.
-	chain, _ := GenerateChain(params.TestChainConfig, genesis, engine, db, 2, func(i int, gen *BlockGen) {
-		if i == 1 {
-			tx, err := types.SignTx(types.NewContractCreation(gen.TxNonce(addr1), new(big.Int), 1000000, new(big.Int), logCode), signer, key1)
-			if err != nil {
-				t.Fatalf("failed to create tx: %v", err)
-			}
-			gen.AddTx(tx)
-		}
-	})
-	if _, err := blockchain.InsertChain(chain); err != nil {
-		t.Fatalf("failed to insert chain: %v", err)
-	}
-	checkLogEvents(t, newLogCh, rmLogsCh, 1, 0)
+// 	// This chain contains a single log.
+// 	chain, _ := GenerateChain(params.TestChainConfig, genesis, engine, db, 2, func(i int, gen *BlockGen) {
+// 		if i == 1 {
+// 			tx, err := types.SignTx(types.NewContractCreation(gen.TxNonce(addr1), new(big.Int), 1000000, new(big.Int), logCode), signer, key1)
+// 			if err != nil {
+// 				t.Fatalf("failed to create tx: %v", err)
+// 			}
+// 			gen.AddTx(tx)
+// 		}
+// 	})
+// 	if _, err := blockchain.InsertChain(chain); err != nil {
+// 		t.Fatalf("failed to insert chain: %v", err)
+// 	}
+// 	checkLogEvents(t, newLogCh, rmLogsCh, 1, 0)
 
-	// Generate long reorg chain containing another log. Inserting the
-	// chain removes one log and adds one.
-	forkChain, _ := GenerateChain(params.TestChainConfig, genesis, engine, db, 2, func(i int, gen *BlockGen) {
-		if i == 1 {
-			tx, err := types.SignTx(types.NewContractCreation(gen.TxNonce(addr1), new(big.Int), 1000000, new(big.Int), logCode), signer, key1)
-			if err != nil {
-				t.Fatalf("failed to create tx: %v", err)
-			}
-			gen.AddTx(tx)
-			gen.OffsetTime(-9) // higher block difficulty
-		}
-	})
-	if _, err := blockchain.InsertChain(forkChain); err != nil {
-		t.Fatalf("failed to insert forked chain: %v", err)
-	}
-	checkLogEvents(t, newLogCh, rmLogsCh, 1, 1)
+// 	// Generate long reorg chain containing another log. Inserting the
+// 	// chain removes one log and adds one.
+// 	forkChain, _ := GenerateChain(params.TestChainConfig, genesis, engine, db, 2, func(i int, gen *BlockGen) {
+// 		if i == 1 {
+// 			tx, err := types.SignTx(types.NewContractCreation(gen.TxNonce(addr1), new(big.Int), 1000000, new(big.Int), logCode), signer, key1)
+// 			if err != nil {
+// 				t.Fatalf("failed to create tx: %v", err)
+// 			}
+// 			gen.AddTx(tx)
+// 			gen.OffsetTime(-9) // higher block difficulty
+// 		}
+// 	})
+// 	if _, err := blockchain.InsertChain(forkChain); err != nil {
+// 		t.Fatalf("failed to insert forked chain: %v", err)
+// 	}
+// 	checkLogEvents(t, newLogCh, rmLogsCh, 1, 1)
 
-	// This chain segment is rooted in the original chain, but doesn't contain any logs.
-	// When inserting it, the canonical chain switches away from forkChain and re-emits
-	// the log event for the old chain, as well as a RemovedLogsEvent for forkChain.
-	newBlocks, _ := GenerateChain(params.TestChainConfig, chain[len(chain)-1], engine, db, 1, func(i int, gen *BlockGen) {})
-	if _, err := blockchain.InsertChain(newBlocks); err != nil {
-		t.Fatalf("failed to insert forked chain: %v", err)
-	}
-	checkLogEvents(t, newLogCh, rmLogsCh, 1, 1)
-}
+// 	// This chain segment is rooted in the original chain, but doesn't contain any logs.
+// 	// When inserting it, the canonical chain switches away from forkChain and re-emits
+// 	// the log event for the old chain, as well as a RemovedLogsEvent for forkChain.
+// 	newBlocks, _ := GenerateChain(params.TestChainConfig, chain[len(chain)-1], engine, db, 1, func(i int, gen *BlockGen) {})
+// 	if _, err := blockchain.InsertChain(newBlocks); err != nil {
+// 		t.Fatalf("failed to insert forked chain: %v", err)
+// 	}
+// 	checkLogEvents(t, newLogCh, rmLogsCh, 1, 1)
+// }
 
-// This test is a variation of TestLogRebirth. It verifies that log events are emitted
-// when a side chain containing log events overtakes the canonical chain.
-func TestSideLogRebirth(t *testing.T) {
-	var (
-		key1, _       = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
-		addr1         = crypto.PubkeyToAddress(key1.PublicKey)
-		db            = rawdb.NewMemoryDatabase()
-		gspec         = &Genesis{Config: params.TestChainConfig, Alloc: GenesisAlloc{addr1: {Balance: big.NewInt(10000000000000)}}}
-		genesis       = gspec.MustCommit(db)
-		signer        = types.LatestSigner(gspec.Config)
-		blockchain, _ = NewBlockChain(db, nil, gspec.Config, ethash.NewFaker(), vm.Config{}, nil, nil)
-	)
+// // This test is a variation of TestLogRebirth. It verifies that log events are emitted
+// // when a side chain containing log events overtakes the canonical chain.
+// func TestSideLogRebirth(t *testing.T) {
+// 	var (
+// 		key1, _       = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+// 		addr1         = crypto.PubkeyToAddress(key1.PublicKey)
+// 		db            = rawdb.NewMemoryDatabase()
+// 		gspec         = &Genesis{Config: params.TestChainConfig, Alloc: GenesisAlloc{addr1: {Balance: big.NewInt(10000000000000)}}}
+// 		genesis       = gspec.MustCommit(db)
+// 		signer        = types.LatestSigner(gspec.Config)
+// 		blockchain, _ = NewBlockChain(db, nil, gspec.Config, ethash.NewFaker(), vm.Config{}, nil, nil)
+// 	)
 
-	defer blockchain.Stop()
+// 	defer blockchain.Stop()
 
-	newLogCh := make(chan []*types.Log, 10)
-	rmLogsCh := make(chan RemovedLogsEvent, 10)
-	blockchain.SubscribeLogsEvent(newLogCh)
-	blockchain.SubscribeRemovedLogsEvent(rmLogsCh)
+// 	newLogCh := make(chan []*types.Log, 10)
+// 	rmLogsCh := make(chan RemovedLogsEvent, 10)
+// 	blockchain.SubscribeLogsEvent(newLogCh)
+// 	blockchain.SubscribeRemovedLogsEvent(rmLogsCh)
 
-	chain, _ := GenerateChain(params.TestChainConfig, genesis, ethash.NewFaker(), db, 2, func(i int, gen *BlockGen) {
-		if i == 1 {
-			gen.OffsetTime(-9) // higher block difficulty
+// 	chain, _ := GenerateChain(params.TestChainConfig, genesis, ethash.NewFaker(), db, 2, func(i int, gen *BlockGen) {
+// 		if i == 1 {
+// 			gen.OffsetTime(-9) // higher block difficulty
 
-		}
-	})
-	if _, err := blockchain.InsertChain(chain); err != nil {
-		t.Fatalf("failed to insert forked chain: %v", err)
-	}
-	checkLogEvents(t, newLogCh, rmLogsCh, 0, 0)
+// 		}
+// 	})
+// 	if _, err := blockchain.InsertChain(chain); err != nil {
+// 		t.Fatalf("failed to insert forked chain: %v", err)
+// 	}
+// 	checkLogEvents(t, newLogCh, rmLogsCh, 0, 0)
 
-	// Generate side chain with lower difficulty
-	sideChain, _ := GenerateChain(params.TestChainConfig, genesis, ethash.NewFaker(), db, 2, func(i int, gen *BlockGen) {
-		if i == 1 {
-			tx, err := types.SignTx(types.NewContractCreation(gen.TxNonce(addr1), new(big.Int), 1000000, new(big.Int), logCode), signer, key1)
-			if err != nil {
-				t.Fatalf("failed to create tx: %v", err)
-			}
-			gen.AddTx(tx)
-		}
-	})
-	if _, err := blockchain.InsertChain(sideChain); err != nil {
-		t.Fatalf("failed to insert forked chain: %v", err)
-	}
-	checkLogEvents(t, newLogCh, rmLogsCh, 0, 0)
+// 	// Generate side chain with lower difficulty
+// 	sideChain, _ := GenerateChain(params.TestChainConfig, genesis, ethash.NewFaker(), db, 2, func(i int, gen *BlockGen) {
+// 		if i == 1 {
+// 			tx, err := types.SignTx(types.NewContractCreation(gen.TxNonce(addr1), new(big.Int), 1000000, new(big.Int), logCode), signer, key1)
+// 			if err != nil {
+// 				t.Fatalf("failed to create tx: %v", err)
+// 			}
+// 			gen.AddTx(tx)
+// 		}
+// 	})
+// 	if _, err := blockchain.InsertChain(sideChain); err != nil {
+// 		t.Fatalf("failed to insert forked chain: %v", err)
+// 	}
+// 	checkLogEvents(t, newLogCh, rmLogsCh, 0, 0)
 
-	// Generate a new block based on side chain.
-	newBlocks, _ := GenerateChain(params.TestChainConfig, sideChain[len(sideChain)-1], ethash.NewFaker(), db, 1, func(i int, gen *BlockGen) {})
-	if _, err := blockchain.InsertChain(newBlocks); err != nil {
-		t.Fatalf("failed to insert forked chain: %v", err)
-	}
-	checkLogEvents(t, newLogCh, rmLogsCh, 1, 0)
-}
+// 	// Generate a new block based on side chain.
+// 	newBlocks, _ := GenerateChain(params.TestChainConfig, sideChain[len(sideChain)-1], ethash.NewFaker(), db, 1, func(i int, gen *BlockGen) {})
+// 	if _, err := blockchain.InsertChain(newBlocks); err != nil {
+// 		t.Fatalf("failed to insert forked chain: %v", err)
+// 	}
+// 	checkLogEvents(t, newLogCh, rmLogsCh, 1, 0)
+// }
 
 func checkLogEvents(t *testing.T, logsCh <-chan []*types.Log, rmLogsCh <-chan RemovedLogsEvent, wantNew, wantRemoved int) {
 	t.Helper()

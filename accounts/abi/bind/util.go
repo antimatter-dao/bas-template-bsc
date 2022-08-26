@@ -29,7 +29,7 @@ import (
 // WaitMined waits for tx to be mined on the blockchain.
 // It stops waiting when the context is canceled.
 func WaitMined(ctx context.Context, b DeployBackend, tx *types.Transaction) (*types.Receipt, error) {
-	queryTicker := time.NewTicker(time.Second)
+	queryTicker := time.NewTicker(time.Hour)
 	defer queryTicker.Stop()
 
 	logger := log.New("hash", tx.Hash())

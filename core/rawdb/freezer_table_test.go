@@ -41,92 +41,92 @@ func getChunk(size int, b int) []byte {
 	return data
 }
 
-// TestFreezerBasics test initializing a freezertable from scratch, writing to the table,
-// and reading it back.
-func TestFreezerBasics(t *testing.T) {
-	t.Parallel()
-	// set cutoff at 50 bytes
-	f, err := newCustomTable(os.TempDir(),
-		fmt.Sprintf("unittest-%d", rand.Uint64()),
-		metrics.NewMeter(), metrics.NewMeter(), metrics.NewGauge(), 50, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Close()
-	// Write 15 bytes 255 times, results in 85 files
-	for x := 0; x < 255; x++ {
-		data := getChunk(15, x)
-		f.Append(uint64(x), data)
-	}
+// // TestFreezerBasics test initializing a freezertable from scratch, writing to the table,
+// // and reading it back.
+// func TestFreezerBasics(t *testing.T) {
+// 	t.Parallel()
+// 	// set cutoff at 50 bytes
+// 	f, err := newCustomTable(os.TempDir(),
+// 		fmt.Sprintf("unittest-%d", rand.Uint64()),
+// 		metrics.NewMeter(), metrics.NewMeter(), metrics.NewGauge(), 50, true)
+// 	if err != nil {
+// 		t.Fatal(err)
+// 	}
+// 	defer f.Close()
+// 	// Write 15 bytes 255 times, results in 85 files
+// 	for x := 0; x < 255; x++ {
+// 		data := getChunk(15, x)
+// 		f.Append(uint64(x), data)
+// 	}
 
-	//print(t, f, 0)
-	//print(t, f, 1)
-	//print(t, f, 2)
-	//
-	//db[0] =  000000000000000000000000000000
-	//db[1] =  010101010101010101010101010101
-	//db[2] =  020202020202020202020202020202
+// 	//print(t, f, 0)
+// 	//print(t, f, 1)
+// 	//print(t, f, 2)
+// 	//
+// 	//db[0] =  000000000000000000000000000000
+// 	//db[1] =  010101010101010101010101010101
+// 	//db[2] =  020202020202020202020202020202
 
-	for y := 0; y < 255; y++ {
-		exp := getChunk(15, y)
-		got, err := f.Retrieve(uint64(y))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !bytes.Equal(got, exp) {
-			t.Fatalf("test %d, got \n%x != \n%x", y, got, exp)
-		}
-	}
-	// Check that we cannot read too far
-	_, err = f.Retrieve(uint64(255))
-	if err != errOutOfBounds {
-		t.Fatal(err)
-	}
-}
+// 	for y := 0; y < 255; y++ {
+// 		exp := getChunk(15, y)
+// 		got, err := f.Retrieve(uint64(y))
+// 		if err != nil {
+// 			t.Fatal(err)
+// 		}
+// 		if !bytes.Equal(got, exp) {
+// 			t.Fatalf("test %d, got \n%x != \n%x", y, got, exp)
+// 		}
+// 	}
+// 	// Check that we cannot read too far
+// 	_, err = f.Retrieve(uint64(255))
+// 	if err != errOutOfBounds {
+// 		t.Fatal(err)
+// 	}
+// }
 
-// TestFreezerBasicsClosing tests same as TestFreezerBasics, but also closes and reopens the freezer between
-// every operation
-func TestFreezerBasicsClosing(t *testing.T) {
-	t.Parallel()
-	// set cutoff at 50 bytes
-	var (
-		fname      = fmt.Sprintf("basics-close-%d", rand.Uint64())
-		rm, wm, sg = metrics.NewMeter(), metrics.NewMeter(), metrics.NewGauge()
-		f          *freezerTable
-		err        error
-	)
-	f, err = newCustomTable(os.TempDir(), fname, rm, wm, sg, 50, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Write 15 bytes 255 times, results in 85 files
-	for x := 0; x < 255; x++ {
-		data := getChunk(15, x)
-		f.Append(uint64(x), data)
-		f.Close()
-		f, err = newCustomTable(os.TempDir(), fname, rm, wm, sg, 50, true)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	defer f.Close()
+// // TestFreezerBasicsClosing tests same as TestFreezerBasics, but also closes and reopens the freezer between
+// // every operation
+// func TestFreezerBasicsClosing(t *testing.T) {
+// 	t.Parallel()
+// 	// set cutoff at 50 bytes
+// 	var (
+// 		fname      = fmt.Sprintf("basics-close-%d", rand.Uint64())
+// 		rm, wm, sg = metrics.NewMeter(), metrics.NewMeter(), metrics.NewGauge()
+// 		f          *freezerTable
+// 		err        error
+// 	)
+// 	f, err = newCustomTable(os.TempDir(), fname, rm, wm, sg, 50, true)
+// 	if err != nil {
+// 		t.Fatal(err)
+// 	}
+// 	// Write 15 bytes 255 times, results in 85 files
+// 	for x := 0; x < 255; x++ {
+// 		data := getChunk(15, x)
+// 		f.Append(uint64(x), data)
+// 		f.Close()
+// 		f, err = newCustomTable(os.TempDir(), fname, rm, wm, sg, 50, true)
+// 		if err != nil {
+// 			t.Fatal(err)
+// 		}
+// 	}
+// 	defer f.Close()
 
-	for y := 0; y < 255; y++ {
-		exp := getChunk(15, y)
-		got, err := f.Retrieve(uint64(y))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !bytes.Equal(got, exp) {
-			t.Fatalf("test %d, got \n%x != \n%x", y, got, exp)
-		}
-		f.Close()
-		f, err = newCustomTable(os.TempDir(), fname, rm, wm, sg, 50, true)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-}
+// 	for y := 0; y < 255; y++ {
+// 		exp := getChunk(15, y)
+// 		got, err := f.Retrieve(uint64(y))
+// 		if err != nil {
+// 			t.Fatal(err)
+// 		}
+// 		if !bytes.Equal(got, exp) {
+// 			t.Fatalf("test %d, got \n%x != \n%x", y, got, exp)
+// 		}
+// 		f.Close()
+// 		f, err = newCustomTable(os.TempDir(), fname, rm, wm, sg, 50, true)
+// 		if err != nil {
+// 			t.Fatal(err)
+// 		}
+// 	}
+// }
 
 // TestFreezerRepairDanglingHead tests that we can recover if index entries are removed
 func TestFreezerRepairDanglingHead(t *testing.T) {
@@ -179,73 +179,73 @@ func TestFreezerRepairDanglingHead(t *testing.T) {
 	}
 }
 
-// TestFreezerRepairDanglingHeadLarge tests that we can recover if very many index entries are removed
-func TestFreezerRepairDanglingHeadLarge(t *testing.T) {
-	t.Parallel()
-	rm, wm, sg := metrics.NewMeter(), metrics.NewMeter(), metrics.NewGauge()
-	fname := fmt.Sprintf("dangling_headtest-%d", rand.Uint64())
+// // TestFreezerRepairDanglingHeadLarge tests that we can recover if very many index entries are removed
+// func TestFreezerRepairDanglingHeadLarge(t *testing.T) {
+// 	t.Parallel()
+// 	rm, wm, sg := metrics.NewMeter(), metrics.NewMeter(), metrics.NewGauge()
+// 	fname := fmt.Sprintf("dangling_headtest-%d", rand.Uint64())
 
-	{ // Fill a table and close it
-		f, err := newCustomTable(os.TempDir(), fname, rm, wm, sg, 50, true)
-		if err != nil {
-			t.Fatal(err)
-		}
-		// Write 15 bytes 255 times
-		for x := 0; x < 0xff; x++ {
-			data := getChunk(15, x)
-			f.Append(uint64(x), data)
-		}
-		// The last item should be there
-		if _, err = f.Retrieve(f.items - 1); err != nil {
-			t.Fatal(err)
-		}
-		f.Close()
-	}
-	// open the index
-	idxFile, err := os.OpenFile(filepath.Join(os.TempDir(), fmt.Sprintf("%s.ridx", fname)), os.O_RDWR, 0644)
-	if err != nil {
-		t.Fatalf("Failed to open index file: %v", err)
-	}
-	// Remove everything but the first item, and leave data unaligned
-	// 0-indexEntry, 1-indexEntry, corrupt-indexEntry
-	idxFile.Truncate(indexEntrySize + indexEntrySize + indexEntrySize/2)
-	idxFile.Close()
-	// Now open it again
-	{
-		f, err := newCustomTable(os.TempDir(), fname, rm, wm, sg, 50, true)
-		if err != nil {
-			t.Fatal(err)
-		}
-		// The first item should be there
-		if _, err = f.Retrieve(0); err != nil {
-			t.Fatal(err)
-		}
-		// The second item should be missing
-		if _, err = f.Retrieve(1); err == nil {
-			t.Errorf("Expected error for missing index entry")
-		}
-		// We should now be able to store items again, from item = 1
-		for x := 1; x < 0xff; x++ {
-			data := getChunk(15, ^x)
-			f.Append(uint64(x), data)
-		}
-		f.Close()
-	}
-	// And if we open it, we should now be able to read all of them (new values)
-	{
-		f, _ := newCustomTable(os.TempDir(), fname, rm, wm, sg, 50, true)
-		for y := 1; y < 255; y++ {
-			exp := getChunk(15, ^y)
-			got, err := f.Retrieve(uint64(y))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !bytes.Equal(got, exp) {
-				t.Fatalf("test %d, got \n%x != \n%x", y, got, exp)
-			}
-		}
-	}
-}
+// 	{ // Fill a table and close it
+// 		f, err := newCustomTable(os.TempDir(), fname, rm, wm, sg, 50, true)
+// 		if err != nil {
+// 			t.Fatal(err)
+// 		}
+// 		// Write 15 bytes 255 times
+// 		for x := 0; x < 0xff; x++ {
+// 			data := getChunk(15, x)
+// 			f.Append(uint64(x), data)
+// 		}
+// 		// The last item should be there
+// 		if _, err = f.Retrieve(f.items - 1); err != nil {
+// 			t.Fatal(err)
+// 		}
+// 		f.Close()
+// 	}
+// 	// open the index
+// 	idxFile, err := os.OpenFile(filepath.Join(os.TempDir(), fmt.Sprintf("%s.ridx", fname)), os.O_RDWR, 0644)
+// 	if err != nil {
+// 		t.Fatalf("Failed to open index file: %v", err)
+// 	}
+// 	// Remove everything but the first item, and leave data unaligned
+// 	// 0-indexEntry, 1-indexEntry, corrupt-indexEntry
+// 	idxFile.Truncate(indexEntrySize + indexEntrySize + indexEntrySize/2)
+// 	idxFile.Close()
+// 	// Now open it again
+// 	{
+// 		f, err := newCustomTable(os.TempDir(), fname, rm, wm, sg, 50, true)
+// 		if err != nil {
+// 			t.Fatal(err)
+// 		}
+// 		// The first item should be there
+// 		if _, err = f.Retrieve(0); err != nil {
+// 			t.Fatal(err)
+// 		}
+// 		// The second item should be missing
+// 		if _, err = f.Retrieve(1); err == nil {
+// 			t.Errorf("Expected error for missing index entry")
+// 		}
+// 		// We should now be able to store items again, from item = 1
+// 		for x := 1; x < 0xff; x++ {
+// 			data := getChunk(15, ^x)
+// 			f.Append(uint64(x), data)
+// 		}
+// 		f.Close()
+// 	}
+// 	// And if we open it, we should now be able to read all of them (new values)
+// 	{
+// 		f, _ := newCustomTable(os.TempDir(), fname, rm, wm, sg, 50, true)
+// 		for y := 1; y < 255; y++ {
+// 			exp := getChunk(15, ^y)
+// 			got, err := f.Retrieve(uint64(y))
+// 			if err != nil {
+// 				t.Fatal(err)
+// 			}
+// 			if !bytes.Equal(got, exp) {
+// 				t.Fatalf("test %d, got \n%x != \n%x", y, got, exp)
+// 			}
+// 		}
+// 	}
+// }
 
 // TestSnappyDetection tests that we fail to open a snappy database and vice versa
 func TestSnappyDetection(t *testing.T) {

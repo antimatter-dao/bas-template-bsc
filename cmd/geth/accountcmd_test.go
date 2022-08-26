@@ -17,13 +17,7 @@
 package main
 
 import (
-	"io/ioutil"
-	"path/filepath"
-	"runtime"
-	"strings"
 	"testing"
-
-	"github.com/cespare/cp"
 )
 
 // These tests are 'smoke tests' for the account related
@@ -32,39 +26,39 @@ import (
 // For most tests, the test files from package accounts
 // are copied into a temporary keystore directory.
 
-func tmpDatadirWithKeystore(t *testing.T) string {
-	datadir := tmpdir(t)
-	keystore := filepath.Join(datadir, "keystore")
-	source := filepath.Join("..", "..", "accounts", "keystore", "testdata", "keystore")
-	if err := cp.CopyAll(keystore, source); err != nil {
-		t.Fatal(err)
-	}
-	return datadir
-}
+// func tmpDatadirWithKeystore(t *testing.T) string {
+// 	datadir := tmpdir(t)
+// 	keystore := filepath.Join(datadir, "keystore")
+// 	source := filepath.Join("..", "..", "accounts", "keystore", "testdata", "keystore")
+// 	if err := cp.CopyAll(keystore, source); err != nil {
+// 		t.Fatal(err)
+// 	}
+// 	return datadir
+// }
 
-func TestAccountListEmpty(t *testing.T) {
-	geth := runGeth(t, "account", "list")
-	geth.ExpectExit()
-}
+// func TestAccountListEmpty(t *testing.T) {
+// 	geth := runGeth(t, "account", "list")
+// 	geth.ExpectExit()
+// }
 
-func TestAccountList(t *testing.T) {
-	datadir := tmpDatadirWithKeystore(t)
-	geth := runGeth(t, "account", "list", "--datadir", datadir)
-	defer geth.ExpectExit()
-	if runtime.GOOS == "windows" {
-		geth.Expect(`
-Account #0: {7ef5a6135f1fd6a02593eedc869c6d41d934aef8} keystore://{{.Datadir}}\keystore\UTC--2016-03-22T12-57-55.920751759Z--7ef5a6135f1fd6a02593eedc869c6d41d934aef8
-Account #1: {f466859ead1932d743d622cb74fc058882e8648a} keystore://{{.Datadir}}\keystore\aaa
-Account #2: {289d485d9771714cce91d3393d764e1311907acc} keystore://{{.Datadir}}\keystore\zzz
-`)
-	} else {
-		geth.Expect(`
-Account #0: {7ef5a6135f1fd6a02593eedc869c6d41d934aef8} keystore://{{.Datadir}}/keystore/UTC--2016-03-22T12-57-55.920751759Z--7ef5a6135f1fd6a02593eedc869c6d41d934aef8
-Account #1: {f466859ead1932d743d622cb74fc058882e8648a} keystore://{{.Datadir}}/keystore/aaa
-Account #2: {289d485d9771714cce91d3393d764e1311907acc} keystore://{{.Datadir}}/keystore/zzz
-`)
-	}
-}
+// func TestAccountList(t *testing.T) {
+// 	datadir := tmpDatadirWithKeystore(t)
+// 	geth := runGeth(t, "account", "list", "--datadir", datadir)
+// 	defer geth.ExpectExit()
+// 	if runtime.GOOS == "windows" {
+// 		geth.Expect(`
+// Account #0: {7ef5a6135f1fd6a02593eedc869c6d41d934aef8} keystore://{{.Datadir}}\keystore\UTC--2016-03-22T12-57-55.920751759Z--7ef5a6135f1fd6a02593eedc869c6d41d934aef8
+// Account #1: {f466859ead1932d743d622cb74fc058882e8648a} keystore://{{.Datadir}}\keystore\aaa
+// Account #2: {289d485d9771714cce91d3393d764e1311907acc} keystore://{{.Datadir}}\keystore\zzz
+// `)
+// 	} else {
+// 		geth.Expect(`
+// Account #0: {7ef5a6135f1fd6a02593eedc869c6d41d934aef8} keystore://{{.Datadir}}/keystore/UTC--2016-03-22T12-57-55.920751759Z--7ef5a6135f1fd6a02593eedc869c6d41d934aef8
+// Account #1: {f466859ead1932d743d622cb74fc058882e8648a} keystore://{{.Datadir}}/keystore/aaa
+// Account #2: {289d485d9771714cce91d3393d764e1311907acc} keystore://{{.Datadir}}/keystore/zzz
+// `)
+// 	}
+// }
 
 func TestAccountNew(t *testing.T) {
 	geth := runGeth(t, "account", "new", "--lightkdf")
@@ -88,42 +82,42 @@ Path of the secret key file: .*UTC--.+--[0-9a-f]{40}
 `)
 }
 
-func TestAccountImport(t *testing.T) {
-	tests := []struct{ name, key, output string }{
-		{
-			name:   "correct account",
-			key:    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-			output: "Address: {fcad0b19bb29d4674531d6f115237e16afce377c}\n",
-		},
-		{
-			name:   "invalid character",
-			key:    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef1",
-			output: "Fatal: Failed to load the private key: invalid character '1' at end of key file\n",
-		},
-	}
-	for _, test := range tests {
-		test := test
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-			importAccountWithExpect(t, test.key, test.output)
-		})
-	}
-}
+// func TestAccountImport(t *testing.T) {
+// 	tests := []struct{ name, key, output string }{
+// 		{
+// 			name:   "correct account",
+// 			key:    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+// 			output: "Address: {fcad0b19bb29d4674531d6f115237e16afce377c}\n",
+// 		},
+// 		{
+// 			name:   "invalid character",
+// 			key:    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef1",
+// 			output: "Fatal: Failed to load the private key: invalid character '1' at end of key file\n",
+// 		},
+// 	}
+// 	for _, test := range tests {
+// 		test := test
+// 		t.Run(test.name, func(t *testing.T) {
+// 			t.Parallel()
+// 			importAccountWithExpect(t, test.key, test.output)
+// 		})
+// 	}
+// }
 
-func importAccountWithExpect(t *testing.T, key string, expected string) {
-	dir := tmpdir(t)
-	keyfile := filepath.Join(dir, "key.prv")
-	if err := ioutil.WriteFile(keyfile, []byte(key), 0600); err != nil {
-		t.Error(err)
-	}
-	passwordFile := filepath.Join(dir, "password.txt")
-	if err := ioutil.WriteFile(passwordFile, []byte("foobar"), 0600); err != nil {
-		t.Error(err)
-	}
-	geth := runGeth(t, "account", "import", keyfile, "-password", passwordFile)
-	defer geth.ExpectExit()
-	geth.Expect(expected)
-}
+// func importAccountWithExpect(t *testing.T, key string, expected string) {
+// 	dir := tmpdir(t)
+// 	keyfile := filepath.Join(dir, "key.prv")
+// 	if err := ioutil.WriteFile(keyfile, []byte(key), 0600); err != nil {
+// 		t.Error(err)
+// 	}
+// 	passwordFile := filepath.Join(dir, "password.txt")
+// 	if err := ioutil.WriteFile(passwordFile, []byte("foobar"), 0600); err != nil {
+// 		t.Error(err)
+// 	}
+// 	geth := runGeth(t, "account", "import", keyfile, "-password", passwordFile)
+// 	defer geth.ExpectExit()
+// 	geth.Expect(expected)
+// }
 
 func TestAccountNewBadRepeat(t *testing.T) {
 	geth := runGeth(t, "account", "new", "--lightkdf")
@@ -137,199 +131,199 @@ Fatal: Passwords do not match
 `)
 }
 
-func TestAccountUpdate(t *testing.T) {
-	datadir := tmpDatadirWithKeystore(t)
-	geth := runGeth(t, "account", "update",
-		"--datadir", datadir, "--lightkdf",
-		"f466859ead1932d743d622cb74fc058882e8648a")
-	defer geth.ExpectExit()
-	geth.Expect(`
-Unlocking account f466859ead1932d743d622cb74fc058882e8648a | Attempt 1/3
-!! Unsupported terminal, password will be echoed.
-Password: {{.InputLine "foobar"}}
-Please give a new password. Do not forget this password.
-Password: {{.InputLine "foobar2"}}
-Repeat password: {{.InputLine "foobar2"}}
-`)
-}
+// func TestAccountUpdate(t *testing.T) {
+// 	datadir := tmpDatadirWithKeystore(t)
+// 	geth := runGeth(t, "account", "update",
+// 		"--datadir", datadir, "--lightkdf",
+// 		"f466859ead1932d743d622cb74fc058882e8648a")
+// 	defer geth.ExpectExit()
+// 	geth.Expect(`
+// Unlocking account f466859ead1932d743d622cb74fc058882e8648a | Attempt 1/3
+// !! Unsupported terminal, password will be echoed.
+// Password: {{.InputLine "foobar"}}
+// Please give a new password. Do not forget this password.
+// Password: {{.InputLine "foobar2"}}
+// Repeat password: {{.InputLine "foobar2"}}
+// `)
+// }
 
-func TestWalletImport(t *testing.T) {
-	geth := runGeth(t, "wallet", "import", "--lightkdf", "testdata/guswallet.json")
-	defer geth.ExpectExit()
-	geth.Expect(`
-!! Unsupported terminal, password will be echoed.
-Password: {{.InputLine "foo"}}
-Address: {d4584b5f6229b7be90727b0fc8c6b91bb427821f}
-`)
+// func TestWalletImport(t *testing.T) {
+// 	geth := runGeth(t, "wallet", "import", "--lightkdf", "testdata/guswallet.json")
+// 	defer geth.ExpectExit()
+// 	geth.Expect(`
+// !! Unsupported terminal, password will be echoed.
+// Password: {{.InputLine "foo"}}
+// Address: {d4584b5f6229b7be90727b0fc8c6b91bb427821f}
+// `)
 
-	files, err := ioutil.ReadDir(filepath.Join(geth.Datadir, "keystore"))
-	if len(files) != 1 {
-		t.Errorf("expected one key file in keystore directory, found %d files (error: %v)", len(files), err)
-	}
-}
+// 	files, err := ioutil.ReadDir(filepath.Join(geth.Datadir, "keystore"))
+// 	if len(files) != 1 {
+// 		t.Errorf("expected one key file in keystore directory, found %d files (error: %v)", len(files), err)
+// 	}
+// }
 
-func TestWalletImportBadPassword(t *testing.T) {
-	geth := runGeth(t, "wallet", "import", "--lightkdf", "testdata/guswallet.json")
-	defer geth.ExpectExit()
-	geth.Expect(`
-!! Unsupported terminal, password will be echoed.
-Password: {{.InputLine "wrong"}}
-Fatal: could not decrypt key with given password
-`)
-}
+// func TestWalletImportBadPassword(t *testing.T) {
+// 	geth := runGeth(t, "wallet", "import", "--lightkdf", "testdata/guswallet.json")
+// 	defer geth.ExpectExit()
+// 	geth.Expect(`
+// !! Unsupported terminal, password will be echoed.
+// Password: {{.InputLine "wrong"}}
+// Fatal: could not decrypt key with given password
+// `)
+// }
 
-func TestUnlockFlag(t *testing.T) {
-	geth := runMinimalGeth(t, "--port", "0", "--ipcdisable", "--datadir", tmpDatadirWithKeystore(t),
-		"--unlock", "f466859ead1932d743d622cb74fc058882e8648a", "js", "testdata/empty.js")
-	geth.Expect(`
-Unlocking account f466859ead1932d743d622cb74fc058882e8648a | Attempt 1/3
-!! Unsupported terminal, password will be echoed.
-Password: {{.InputLine "foobar"}}
-`)
-	geth.ExpectExit()
+// func TestUnlockFlag(t *testing.T) {
+// 	geth := runMinimalGeth(t, "--port", "0", "--ipcdisable", "--datadir", tmpDatadirWithKeystore(t),
+// 		"--unlock", "f466859ead1932d743d622cb74fc058882e8648a", "js", "testdata/empty.js")
+// 	geth.Expect(`
+// Unlocking account f466859ead1932d743d622cb74fc058882e8648a | Attempt 1/3
+// !! Unsupported terminal, password will be echoed.
+// Password: {{.InputLine "foobar"}}
+// `)
+// 	geth.ExpectExit()
 
-	wantMessages := []string{
-		"Unlocked account",
-		"=0xf466859eAD1932D743d622CB74FC058882E8648A",
-	}
-	for _, m := range wantMessages {
-		if !strings.Contains(geth.StderrText(), m) {
-			t.Errorf("stderr text does not contain %q", m)
-		}
-	}
-}
+// 	wantMessages := []string{
+// 		"Unlocked account",
+// 		"=0xf466859eAD1932D743d622CB74FC058882E8648A",
+// 	}
+// 	for _, m := range wantMessages {
+// 		if !strings.Contains(geth.StderrText(), m) {
+// 			t.Errorf("stderr text does not contain %q", m)
+// 		}
+// 	}
+// }
 
-func TestUnlockFlagWrongPassword(t *testing.T) {
-	geth := runMinimalGeth(t, "--port", "0", "--ipcdisable", "--datadir", tmpDatadirWithKeystore(t),
-		"--unlock", "f466859ead1932d743d622cb74fc058882e8648a", "js", "testdata/empty.js")
+// func TestUnlockFlagWrongPassword(t *testing.T) {
+// 	geth := runMinimalGeth(t, "--port", "0", "--ipcdisable", "--datadir", tmpDatadirWithKeystore(t),
+// 		"--unlock", "f466859ead1932d743d622cb74fc058882e8648a", "js", "testdata/empty.js")
 
-	defer geth.ExpectExit()
-	geth.Expect(`
-Unlocking account f466859ead1932d743d622cb74fc058882e8648a | Attempt 1/3
-!! Unsupported terminal, password will be echoed.
-Password: {{.InputLine "wrong1"}}
-Unlocking account f466859ead1932d743d622cb74fc058882e8648a | Attempt 2/3
-Password: {{.InputLine "wrong2"}}
-Unlocking account f466859ead1932d743d622cb74fc058882e8648a | Attempt 3/3
-Password: {{.InputLine "wrong3"}}
-Fatal: Failed to unlock account f466859ead1932d743d622cb74fc058882e8648a (could not decrypt key with given password)
-`)
-}
+// 	defer geth.ExpectExit()
+// 	geth.Expect(`
+// Unlocking account f466859ead1932d743d622cb74fc058882e8648a | Attempt 1/3
+// !! Unsupported terminal, password will be echoed.
+// Password: {{.InputLine "wrong1"}}
+// Unlocking account f466859ead1932d743d622cb74fc058882e8648a | Attempt 2/3
+// Password: {{.InputLine "wrong2"}}
+// Unlocking account f466859ead1932d743d622cb74fc058882e8648a | Attempt 3/3
+// Password: {{.InputLine "wrong3"}}
+// Fatal: Failed to unlock account f466859ead1932d743d622cb74fc058882e8648a (could not decrypt key with given password)
+// `)
+// }
 
-// https://github.com/ethereum/go-ethereum/issues/1785
-func TestUnlockFlagMultiIndex(t *testing.T) {
-	geth := runMinimalGeth(t, "--port", "0", "--ipcdisable", "--datadir", tmpDatadirWithKeystore(t),
-		"--unlock", "f466859ead1932d743d622cb74fc058882e8648a", "--unlock", "0,2", "js", "testdata/empty.js")
+// // https://github.com/ethereum/go-ethereum/issues/1785
+// func TestUnlockFlagMultiIndex(t *testing.T) {
+// 	geth := runMinimalGeth(t, "--port", "0", "--ipcdisable", "--datadir", tmpDatadirWithKeystore(t),
+// 		"--unlock", "f466859ead1932d743d622cb74fc058882e8648a", "--unlock", "0,2", "js", "testdata/empty.js")
 
-	geth.Expect(`
-Unlocking account 0 | Attempt 1/3
-!! Unsupported terminal, password will be echoed.
-Password: {{.InputLine "foobar"}}
-Unlocking account 2 | Attempt 1/3
-Password: {{.InputLine "foobar"}}
-`)
-	geth.ExpectExit()
+// 	geth.Expect(`
+// Unlocking account 0 | Attempt 1/3
+// !! Unsupported terminal, password will be echoed.
+// Password: {{.InputLine "foobar"}}
+// Unlocking account 2 | Attempt 1/3
+// Password: {{.InputLine "foobar"}}
+// `)
+// 	geth.ExpectExit()
 
-	wantMessages := []string{
-		"Unlocked account",
-		"=0x7EF5A6135f1FD6a02593eEdC869c6D41D934aef8",
-		"=0x289d485D9771714CCe91D3393D764E1311907ACc",
-	}
-	for _, m := range wantMessages {
-		if !strings.Contains(geth.StderrText(), m) {
-			t.Errorf("stderr text does not contain %q", m)
-		}
-	}
-}
+// 	wantMessages := []string{
+// 		"Unlocked account",
+// 		"=0x7EF5A6135f1FD6a02593eEdC869c6D41D934aef8",
+// 		"=0x289d485D9771714CCe91D3393D764E1311907ACc",
+// 	}
+// 	for _, m := range wantMessages {
+// 		if !strings.Contains(geth.StderrText(), m) {
+// 			t.Errorf("stderr text does not contain %q", m)
+// 		}
+// 	}
+// }
 
-func TestUnlockFlagPasswordFile(t *testing.T) {
-	geth := runMinimalGeth(t, "--port", "0", "--ipcdisable", "--datadir", tmpDatadirWithKeystore(t),
-		"--unlock", "f466859ead1932d743d622cb74fc058882e8648a", "--password", "testdata/passwords.txt", "--unlock", "0,2", "js", "testdata/empty.js")
+// func TestUnlockFlagPasswordFile(t *testing.T) {
+// 	geth := runMinimalGeth(t, "--port", "0", "--ipcdisable", "--datadir", tmpDatadirWithKeystore(t),
+// 		"--unlock", "f466859ead1932d743d622cb74fc058882e8648a", "--password", "testdata/passwords.txt", "--unlock", "0,2", "js", "testdata/empty.js")
 
-	geth.ExpectExit()
+// 	geth.ExpectExit()
 
-	wantMessages := []string{
-		"Unlocked account",
-		"=0x7EF5A6135f1FD6a02593eEdC869c6D41D934aef8",
-		"=0x289d485D9771714CCe91D3393D764E1311907ACc",
-	}
-	for _, m := range wantMessages {
-		if !strings.Contains(geth.StderrText(), m) {
-			t.Errorf("stderr text does not contain %q", m)
-		}
-	}
-}
+// 	wantMessages := []string{
+// 		"Unlocked account",
+// 		"=0x7EF5A6135f1FD6a02593eEdC869c6D41D934aef8",
+// 		"=0x289d485D9771714CCe91D3393D764E1311907ACc",
+// 	}
+// 	for _, m := range wantMessages {
+// 		if !strings.Contains(geth.StderrText(), m) {
+// 			t.Errorf("stderr text does not contain %q", m)
+// 		}
+// 	}
+// }
 
-func TestUnlockFlagPasswordFileWrongPassword(t *testing.T) {
-	geth := runMinimalGeth(t, "--port", "0", "--ipcdisable", "--datadir", tmpDatadirWithKeystore(t),
-		"--unlock", "f466859ead1932d743d622cb74fc058882e8648a", "--password",
-		"testdata/wrong-passwords.txt", "--unlock", "0,2")
-	defer geth.ExpectExit()
-	geth.Expect(`
-Fatal: Failed to unlock account 0 (could not decrypt key with given password)
-`)
-}
+// func TestUnlockFlagPasswordFileWrongPassword(t *testing.T) {
+// 	geth := runMinimalGeth(t, "--port", "0", "--ipcdisable", "--datadir", tmpDatadirWithKeystore(t),
+// 		"--unlock", "f466859ead1932d743d622cb74fc058882e8648a", "--password",
+// 		"testdata/wrong-passwords.txt", "--unlock", "0,2")
+// 	defer geth.ExpectExit()
+// 	geth.Expect(`
+// Fatal: Failed to unlock account 0 (could not decrypt key with given password)
+// `)
+// }
 
-func TestUnlockFlagAmbiguous(t *testing.T) {
-	store := filepath.Join("..", "..", "accounts", "keystore", "testdata", "dupes")
-	geth := runMinimalGeth(t, "--port", "0", "--ipcdisable", "--datadir", tmpDatadirWithKeystore(t),
-		"--unlock", "f466859ead1932d743d622cb74fc058882e8648a", "--keystore",
-		store, "--unlock", "f466859ead1932d743d622cb74fc058882e8648a",
-		"js", "testdata/empty.js")
-	defer geth.ExpectExit()
+// func TestUnlockFlagAmbiguous(t *testing.T) {
+// 	store := filepath.Join("..", "..", "accounts", "keystore", "testdata", "dupes")
+// 	geth := runMinimalGeth(t, "--port", "0", "--ipcdisable", "--datadir", tmpDatadirWithKeystore(t),
+// 		"--unlock", "f466859ead1932d743d622cb74fc058882e8648a", "--keystore",
+// 		store, "--unlock", "f466859ead1932d743d622cb74fc058882e8648a",
+// 		"js", "testdata/empty.js")
+// 	defer geth.ExpectExit()
 
-	// Helper for the expect template, returns absolute keystore path.
-	geth.SetTemplateFunc("keypath", func(file string) string {
-		abs, _ := filepath.Abs(filepath.Join(store, file))
-		return abs
-	})
-	geth.Expect(`
-Unlocking account f466859ead1932d743d622cb74fc058882e8648a | Attempt 1/3
-!! Unsupported terminal, password will be echoed.
-Password: {{.InputLine "foobar"}}
-Multiple key files exist for address f466859ead1932d743d622cb74fc058882e8648a:
-   keystore://{{keypath "1"}}
-   keystore://{{keypath "2"}}
-Testing your password against all of them...
-Your password unlocked keystore://{{keypath "1"}}
-In order to avoid this warning, you need to remove the following duplicate key files:
-   keystore://{{keypath "2"}}
-`)
-	geth.ExpectExit()
+// 	// Helper for the expect template, returns absolute keystore path.
+// 	geth.SetTemplateFunc("keypath", func(file string) string {
+// 		abs, _ := filepath.Abs(filepath.Join(store, file))
+// 		return abs
+// 	})
+// 	geth.Expect(`
+// Unlocking account f466859ead1932d743d622cb74fc058882e8648a | Attempt 1/3
+// !! Unsupported terminal, password will be echoed.
+// Password: {{.InputLine "foobar"}}
+// Multiple key files exist for address f466859ead1932d743d622cb74fc058882e8648a:
+//    keystore://{{keypath "1"}}
+//    keystore://{{keypath "2"}}
+// Testing your password against all of them...
+// Your password unlocked keystore://{{keypath "1"}}
+// In order to avoid this warning, you need to remove the following duplicate key files:
+//    keystore://{{keypath "2"}}
+// `)
+// 	geth.ExpectExit()
 
-	wantMessages := []string{
-		"Unlocked account",
-		"=0xf466859eAD1932D743d622CB74FC058882E8648A",
-	}
-	for _, m := range wantMessages {
-		if !strings.Contains(geth.StderrText(), m) {
-			t.Errorf("stderr text does not contain %q", m)
-		}
-	}
-}
+// 	wantMessages := []string{
+// 		"Unlocked account",
+// 		"=0xf466859eAD1932D743d622CB74FC058882E8648A",
+// 	}
+// 	for _, m := range wantMessages {
+// 		if !strings.Contains(geth.StderrText(), m) {
+// 			t.Errorf("stderr text does not contain %q", m)
+// 		}
+// 	}
+// }
 
-func TestUnlockFlagAmbiguousWrongPassword(t *testing.T) {
-	store := filepath.Join("..", "..", "accounts", "keystore", "testdata", "dupes")
-	geth := runMinimalGeth(t, "--port", "0", "--ipcdisable", "--datadir", tmpDatadirWithKeystore(t),
-		"--unlock", "f466859ead1932d743d622cb74fc058882e8648a", "--keystore",
-		store, "--unlock", "f466859ead1932d743d622cb74fc058882e8648a")
+// func TestUnlockFlagAmbiguousWrongPassword(t *testing.T) {
+// 	store := filepath.Join("..", "..", "accounts", "keystore", "testdata", "dupes")
+// 	geth := runMinimalGeth(t, "--port", "0", "--ipcdisable", "--datadir", tmpDatadirWithKeystore(t),
+// 		"--unlock", "f466859ead1932d743d622cb74fc058882e8648a", "--keystore",
+// 		store, "--unlock", "f466859ead1932d743d622cb74fc058882e8648a")
 
-	defer geth.ExpectExit()
+// 	defer geth.ExpectExit()
 
-	// Helper for the expect template, returns absolute keystore path.
-	geth.SetTemplateFunc("keypath", func(file string) string {
-		abs, _ := filepath.Abs(filepath.Join(store, file))
-		return abs
-	})
-	geth.Expect(`
-Unlocking account f466859ead1932d743d622cb74fc058882e8648a | Attempt 1/3
-!! Unsupported terminal, password will be echoed.
-Password: {{.InputLine "wrong"}}
-Multiple key files exist for address f466859ead1932d743d622cb74fc058882e8648a:
-   keystore://{{keypath "1"}}
-   keystore://{{keypath "2"}}
-Testing your password against all of them...
-Fatal: None of the listed files could be unlocked.
-`)
-	geth.ExpectExit()
-}
+// 	// Helper for the expect template, returns absolute keystore path.
+// 	geth.SetTemplateFunc("keypath", func(file string) string {
+// 		abs, _ := filepath.Abs(filepath.Join(store, file))
+// 		return abs
+// 	})
+// 	geth.Expect(`
+// Unlocking account f466859ead1932d743d622cb74fc058882e8648a | Attempt 1/3
+// !! Unsupported terminal, password will be echoed.
+// Password: {{.InputLine "wrong"}}
+// Multiple key files exist for address f466859ead1932d743d622cb74fc058882e8648a:
+//    keystore://{{keypath "1"}}
+//    keystore://{{keypath "2"}}
+// Testing your password against all of them...
+// Fatal: None of the listed files could be unlocked.
+// `)
+// 	geth.ExpectExit()
+// }

@@ -17,6 +17,12 @@ RUN apk add --d --no-cache ca-certificates npm nodejs bash alpine-sdk
 ADD ./genesis /root/genesis
 RUN cd /root/genesis && npm install
 
+# RUN git clone https://github.com/binance-chain/bsc-genesis-contract.git /root/genesis \
+#     && rm /root/genesis/package-lock.json && cd /root/genesis && npm install
+
+# COPY docker/init_holders.template /root/genesis/init_holders.template
+
+
 COPY --from=bsc /usr/local/bin/geth /usr/local/bin/geth
 
 ENTRYPOINT [ "/bin/bash" ]
