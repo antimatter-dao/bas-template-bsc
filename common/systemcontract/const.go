@@ -27,14 +27,20 @@ const (
 	ChainConfigContract    = "0x0000000000000000000000000000000000007003"
 	RuntimeUpgradeContract = "0x0000000000000000000000000000000000007004"
 	DeployerProxyContract  = "0x0000000000000000000000000000000000007005"
+	VaultContract          = "0x0000000000000000000000000000000000007006"
 )
 
+// system contract addresses
 var (
+	ValidatorContractAddress      = common.HexToAddress(ValidatorContract)
+	SlashContractAddress          = common.HexToAddress(SlashContract)
+	SystemRewardContractAddress   = common.HexToAddress(SystemRewardContract)
 	StakingPoolContractAddress    = common.HexToAddress(StakingPoolContract)
 	GovernanceContractAddress     = common.HexToAddress(GovernanceContract)
 	ChainConfigContractAddress    = common.HexToAddress(ChainConfigContract)
 	RuntimeUpgradeContractAddress = common.HexToAddress(RuntimeUpgradeContract)
 	DeployerProxyContractAddress  = common.HexToAddress(DeployerProxyContract)
+	VaultContractAddress          = common.HexToAddress(VaultContract)
 )
 
 var systemContracts = map[common.Address]bool{
@@ -50,11 +56,12 @@ var systemContracts = map[common.Address]bool{
 	common.HexToAddress(CrossChainContract):         false,
 	common.HexToAddress(TokenManagerContract):       false,
 	// BAS smart contracts
-	common.HexToAddress(StakingPoolContract):    true,
-	common.HexToAddress(GovernanceContract):     true,
-	common.HexToAddress(ChainConfigContract):    true,
-	common.HexToAddress(RuntimeUpgradeContract): true,
-	common.HexToAddress(DeployerProxyContract):  true,
+	StakingPoolContractAddress:    true,
+	GovernanceContractAddress:     true,
+	ChainConfigContractAddress:    true,
+	RuntimeUpgradeContractAddress: true,
+	DeployerProxyContractAddress:  true,
+	VaultContractAddress:          true,
 }
 
 func IsSystemContract(address common.Address) bool {
