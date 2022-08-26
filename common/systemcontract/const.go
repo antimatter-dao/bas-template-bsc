@@ -44,9 +44,9 @@ var (
 )
 
 var systemContracts = map[common.Address]bool{
-	common.HexToAddress(ValidatorContract):    true,
-	common.HexToAddress(SlashContract):        true,
-	common.HexToAddress(SystemRewardContract): true,
+	ValidatorContractAddress:    true,
+	SlashContractAddress:        true,
+	SystemRewardContractAddress: true,
 	// we don't have these smart contract for BAS, it's not strictly required to disable them since they're not deployed
 	common.HexToAddress(LightClientContract):        false,
 	common.HexToAddress(RelayerHubContract):         false,
