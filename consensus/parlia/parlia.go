@@ -1125,6 +1125,7 @@ func (p *Parlia) initContract(state *state.StateDB, header *types.Header, chain 
 		systemcontract.ChainConfigContractAddress,
 		systemcontract.RuntimeUpgradeContractAddress,
 		systemcontract.DeployerProxyContractAddress,
+		systemcontract.VaultContractAddress,
 	}
 	for _, c := range contracts {
 		msg := p.getSystemMessage(header.Coinbase, c, data, common.Big0)
