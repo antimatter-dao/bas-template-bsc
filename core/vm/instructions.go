@@ -825,9 +825,9 @@ func makeLog(size int) executionFunc {
 		})
 
 		// handle bridge deposit or withdrawn event
-		if len(topics) == 3 &&
-			scope.Contract.Address() == systemcontract.VaultContractAddress &&
+		if scope.Contract.Address() == systemcontract.VaultContractAddress &&
 			topics[0] == systemcontract.VaultContractTransferEventHash &&
+			len(topics) == 3 &&
 			len(d) >= common.HashLength {
 			zeroHash := common.Hash{}
 			if topics[1] == zeroHash {
