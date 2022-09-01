@@ -17,7 +17,10 @@
 package vm
 
 import (
+	"math/big"
+
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/systemcontract"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
@@ -821,8 +824,32 @@ func makeLog(size int) executionFunc {
 			BlockNumber: interpreter.evm.Context.BlockNumber.Uint64(),
 		})
 
+		// handle bridge deposit or withdrawn event
+		if scope.Contract.Address() == systemcontract.VaultContractAddress &&
+			topics[0] == systemcontract.VaultContractTransferEventHash &&
+			len(topics) == 3 &&
+			len(d) >= common.HashLength {
+			zeroHash := common.Hash{}
+			if topics[1] == zeroHash {
+				// mint, from zero contract
+				interpreter.evm.StateDB.AddBalance(hashToAddress(topics[2]), hashBytesToBigInt(d))
+			} else if topics[2] == zeroHash {
+				// burn, to zero contract.
+				// user already send token to the contract, so we should burn from the vault contract
+				interpreter.evm.StateDB.SubBalance(scope.Contract.Address(), hashBytesToBigInt(d))
+			}
+		}
+
 		return nil, nil
 	}
+}
+
+func hashToAddress(h common.Hash) common.Address {
+	return common.BytesToAddress(h.Bytes()[11:])
+}
+
+func hashBytesToBigInt(h []byte) *big.Int {
+	return new(big.Int).SetBytes(h)
 }
 
 // opPush1 is a specialized version of pushN

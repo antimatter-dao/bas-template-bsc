@@ -4,6 +4,7 @@ import (
 	_ "embed"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 )
 
 // BSC contracts
@@ -27,20 +28,26 @@ const (
 	ChainConfigContract    = "0x0000000000000000000000000000000000007003"
 	RuntimeUpgradeContract = "0x0000000000000000000000000000000000007004"
 	DeployerProxyContract  = "0x0000000000000000000000000000000000007005"
+	VaultContract          = "0x0000000000000000000000000000000000007006"
 )
 
+// system contract addresses
 var (
+	ValidatorContractAddress      = common.HexToAddress(ValidatorContract)
+	SlashContractAddress          = common.HexToAddress(SlashContract)
+	SystemRewardContractAddress   = common.HexToAddress(SystemRewardContract)
 	StakingPoolContractAddress    = common.HexToAddress(StakingPoolContract)
 	GovernanceContractAddress     = common.HexToAddress(GovernanceContract)
 	ChainConfigContractAddress    = common.HexToAddress(ChainConfigContract)
 	RuntimeUpgradeContractAddress = common.HexToAddress(RuntimeUpgradeContract)
 	DeployerProxyContractAddress  = common.HexToAddress(DeployerProxyContract)
+	VaultContractAddress          = common.HexToAddress(VaultContract)
 )
 
 var systemContracts = map[common.Address]bool{
-	common.HexToAddress(ValidatorContract):    true,
-	common.HexToAddress(SlashContract):        true,
-	common.HexToAddress(SystemRewardContract): true,
+	ValidatorContractAddress:    true,
+	SlashContractAddress:        true,
+	SystemRewardContractAddress: true,
 	// we don't have these smart contract for BAS, it's not strictly required to disable them since they're not deployed
 	common.HexToAddress(LightClientContract):        false,
 	common.HexToAddress(RelayerHubContract):         false,
@@ -50,11 +57,12 @@ var systemContracts = map[common.Address]bool{
 	common.HexToAddress(CrossChainContract):         false,
 	common.HexToAddress(TokenManagerContract):       false,
 	// BAS smart contracts
-	common.HexToAddress(StakingPoolContract):    true,
-	common.HexToAddress(GovernanceContract):     true,
-	common.HexToAddress(ChainConfigContract):    true,
-	common.HexToAddress(RuntimeUpgradeContract): true,
-	common.HexToAddress(DeployerProxyContract):  true,
+	StakingPoolContractAddress:    true,
+	GovernanceContractAddress:     true,
+	ChainConfigContractAddress:    true,
+	RuntimeUpgradeContractAddress: true,
+	DeployerProxyContractAddress:  true,
+	VaultContractAddress:          true,
 }
 
 func IsSystemContract(address common.Address) bool {
@@ -63,3 +71,8 @@ func IsSystemContract(address common.Address) bool {
 
 var EvmHookRuntimeUpgradeAddress = common.HexToAddress("0x0000000000000000000000000000000000007f01")
 var EvmHookDeployerProxyAddress = common.HexToAddress("0x0000000000000000000000000000000000007f02")
+
+// VaultContractTransferEventHash is the vault contract Transfer event hash
+//
+// 0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef
+var VaultContractTransferEventHash = crypto.Keccak256Hash([]byte("Transfer(address,address,uint256)"))

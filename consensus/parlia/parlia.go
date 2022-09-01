@@ -1034,7 +1034,7 @@ func (p *Parlia) getCurrentValidators(blockHash common.Hash) ([]common.Address, 
 	}
 	// call
 	msgData := (hexutil.Bytes)(data)
-	toAddress := common.HexToAddress(systemcontract.ValidatorContract)
+	toAddress := systemcontract.ValidatorContractAddress
 	gas := (hexutil.Uint64)(uint64(math.MaxUint64 / 2))
 	result, err := p.ethAPI.Call(ctx, ethapi.CallArgs{
 		Gas:  &gas,
@@ -1100,7 +1100,7 @@ func (p *Parlia) slash(spoiledVal common.Address, state *state.StateDB, header *
 		return err
 	}
 	// get system message
-	msg := p.getSystemMessage(header.Coinbase, common.HexToAddress(systemcontract.SlashContract), data, common.Big0)
+	msg := p.getSystemMessage(header.Coinbase, systemcontract.SlashContractAddress, data, common.Big0)
 	// apply message
 	return p.applyTransaction(msg, state, header, chain, txs, receipts, receivedTxs, usedGas, mining)
 }
@@ -1117,14 +1117,15 @@ func (p *Parlia) initContract(state *state.StateDB, header *types.Header, chain 
 		return err
 	}
 	contracts := []common.Address{
-		common.HexToAddress(systemcontract.ValidatorContract),
-		common.HexToAddress(systemcontract.SlashContract),
-		common.HexToAddress(systemcontract.SystemRewardContract),
-		common.HexToAddress(systemcontract.StakingPoolContract),
-		common.HexToAddress(systemcontract.GovernanceContract),
-		common.HexToAddress(systemcontract.ChainConfigContract),
-		common.HexToAddress(systemcontract.RuntimeUpgradeContract),
-		common.HexToAddress(systemcontract.DeployerProxyContract),
+		systemcontract.ValidatorContractAddress,
+		systemcontract.SlashContractAddress,
+		systemcontract.SystemRewardContractAddress,
+		systemcontract.StakingPoolContractAddress,
+		systemcontract.GovernanceContractAddress,
+		systemcontract.ChainConfigContractAddress,
+		systemcontract.RuntimeUpgradeContractAddress,
+		systemcontract.DeployerProxyContractAddress,
+		systemcontract.VaultContractAddress,
 	}
 	for _, c := range contracts {
 		msg := p.getSystemMessage(header.Coinbase, c, data, common.Big0)
