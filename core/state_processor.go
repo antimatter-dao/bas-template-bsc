@@ -396,6 +396,8 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 
 	// initilise bloom processors
 	bloomProcessors := NewAsyncReceiptBloomGenerator(txNum)
+	defer bloomProcessors.Close()
+
 	statedb.MarkFullProcessed()
 
 	// usually do have two tx, one for validator set contract, another for system reward contract.
@@ -423,7 +425,6 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		commonTxs = append(commonTxs, tx)
 		receipts = append(receipts, receipt)
 	}
-	bloomProcessors.Close()
 
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
 	err := p.engine.Finalize(p.bc, header, statedb, &commonTxs, block.Uncles(), &receipts, &systemTxs, usedGas)
