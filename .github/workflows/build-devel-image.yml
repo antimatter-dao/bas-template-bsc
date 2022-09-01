@@ -6,8 +6,6 @@ on:
       - devel
 
   pull_request:
-    branches:
-      - devel
     types:
       - closed
 
