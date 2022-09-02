@@ -62,7 +62,7 @@ jobs:
             for(version of response.data) {
                 if (version.metadata.container.tags.length == 0) {
                     console.log("delete " + version.id)
-                    const deleteResponse = await github.request("DELETE /user/packages/container/${{ env.PACKAGE_NAME }}/versions/" + version.id, { });
+                    const deleteResponse = await github.request("DELETE " + GH_API_PATH + "/packages/container/${{ env.PACKAGE_NAME }}/versions/" + version.id, { });
                     console.log("status " + deleteResponse.status)
                 }
             }
