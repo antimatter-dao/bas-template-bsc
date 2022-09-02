@@ -54,7 +54,7 @@ jobs:
         with:
           github-token: ${{ secrets.AUTO_DELETE_OLD_VERSION_PAT }}
           script: |
-            const response = await github.request("GET /user/packages/container/${{ env.PACKAGE_NAME }}/versions",
+            const response = await github.request("GET /${{ github.repository_owner }}/packages/container/${{ env.PACKAGE_NAME }}/versions",
               { per_page: ${{ env.PER_PAGE }}
             });
             for(version of response.data) {
