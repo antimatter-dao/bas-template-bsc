@@ -19,6 +19,7 @@ jobs:
     runs-on: ubuntu-22.04
     env:
        HAVE_AUTO_DELETE_OLD_VERSION_PAT: ${{ secrets.AUTO_DELETE_OLD_VERSION_PAT != '' }}
+       HAVE_ORG_OWNER: ${{ contains(github, 'organization') }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -54,7 +55,8 @@ jobs:
         with:
           github-token: ${{ secrets.AUTO_DELETE_OLD_VERSION_PAT }}
           script: |
-            const response = await github.request("GET /${{ github.repository_owner }}/packages/container/${{ env.PACKAGE_NAME }}/versions",
+            const GH_API_PATH = ('${{ env.HAVE_ORG_OWNER }}' == 'true') ? "/orgs/${{ github.repository_owner }}" : "/user";
+            const response = await github.request("GET " + GH_API_PATH + "/packages/container/${{ env.PACKAGE_NAME }}/versions",
               { per_page: ${{ env.PER_PAGE }}
             });
             for(version of response.data) {
