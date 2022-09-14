@@ -570,6 +570,9 @@ func (evm *EVM) CanCreateContract(caller ContractRef) bool {
 // Create creates a new contract using code as deployment code.
 func (evm *EVM) Create(caller ContractRef, code []byte, gas uint64, value *big.Int) (ret []byte, contractAddr common.Address, leftOverGas uint64, err error) {
 	if !evm.CanCreateContract(caller) {
+		nonce := evm.StateDB.GetNonce(caller.Address())
+		evm.StateDB.SetNonce(caller.Address(), nonce+1) // should update its nonce even failed
+
 		return nil, common.Address{}, 0, ErrContractCreatorNotAuthorized
 	}
 
