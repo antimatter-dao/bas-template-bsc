@@ -70,6 +70,7 @@ var (
 	netFlag     = flag.Uint64("network", 0, "Network ID to use for the Ethereum protocol")
 	statsFlag   = flag.String("ethstats", "", "Ethstats network monitoring auth string")
 	rpcApiFlag  = flag.String("rpcapi", "", "RPC api")
+	natFlag     = flag.String("nat", "any", "port mapping mechanism (any|none|upnp|pmp|extip:<IP>)")
 
 	netnameFlag = flag.String("faucet.name", "", "Network name to assign to the faucet")
 	payoutFlag  = flag.Int("faucet.amount", 1, "Number of Ethers to pay out per user request")
@@ -210,7 +211,12 @@ func main() {
 	if *rpcApiFlag != "" {
 		faucet, err = newHttpFaucet(genesis, *rpcApiFlag, ks, website.Bytes(), bep2eInfos)
 	} else {
-		faucet, err = newFaucet(genesis, *ethPortFlag, enodes, *netFlag, *statsFlag, ks, website.Bytes(), bep2eInfos)
+		var natCfg nat.Interface
+		natCfg, err = nat.Parse(*natFlag)
+		if err != nil {
+			utils.Fatalf("-nat: %v", err)
+		}
+		faucet, err = newFaucet(genesis, *ethPortFlag, enodes, *netFlag, natCfg, *statsFlag, ks, website.Bytes(), bep2eInfos)
 	}
 	if err != nil {
 		log.Crit("Failed to start faucet", "err", err)
@@ -268,7 +274,7 @@ type wsConn struct {
 	wlock sync.Mutex
 }
 
-func newFaucet(genesis *core.Genesis, port int, enodes []*enode.Node, network uint64, stats string, ks *keystore.KeyStore, index []byte, bep2eInfos map[string]bep2eInfo) (*faucet, error) {
+func newFaucet(genesis *core.Genesis, port int, enodes []*enode.Node, network uint64, natCfg nat.Interface, stats string, ks *keystore.KeyStore, index []byte, bep2eInfos map[string]bep2eInfo) (*faucet, error) {
 	// Assemble the raw devp2p protocol stack
 	stack, err := node.New(&node.Config{
 		Name:    "geth",
@@ -276,7 +282,7 @@ func newFaucet(genesis *core.Genesis, port int, enodes []*enode.Node, network ui
 		DataDir: filepath.Join(os.Getenv("HOME"), ".faucet"),
 		NoUSB:   true,
 		P2P: p2p.Config{
-			NAT:              nat.Any(),
+			NAT:              natCfg,
 			NoDiscovery:      true,
 			DiscoveryV5:      true,
 			ListenAddr:       fmt.Sprintf(":%d", port),
@@ -300,7 +306,7 @@ func newFaucet(genesis *core.Genesis, port int, enodes []*enode.Node, network ui
 
 	lesBackend, err := les.New(stack, &cfg)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to register the Ethereum service: %w", err)
+		return nil, fmt.Errorf("Failed to register the Ethereum service: %s", err.Error())
 	}
 
 	// Assemble the ethstats monitoring and reporting service'
