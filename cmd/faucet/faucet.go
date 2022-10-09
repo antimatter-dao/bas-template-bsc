@@ -41,6 +41,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/keystore"
@@ -695,11 +696,23 @@ func (f *faucet) refresh(head *types.Header) error {
 func (f *faucet) loop() {
 	// Wait for chain events and push them to clients
 	heads := make(chan *types.Header, 16)
-	sub, err := f.client.SubscribeNewHead(context.Background(), heads)
-	if err != nil {
-		log.Crit("Failed to subscribe to head events", "err", err)
+	subscribeTimeout := time.NewTimer(30 * time.Second)
+
+	subscribeHead := func() ethereum.Subscription {
+		sub, err := f.client.SubscribeNewHead(context.Background(), heads)
+		if err != nil {
+			log.Crit("Failed to subscribe to head events", "err", err)
+			return nil
+		}
+		return sub
 	}
-	defer sub.Unsubscribe()
+
+	sub := subscribeHead()
+	defer func() {
+		if sub != nil {
+			sub.Unsubscribe()
+		}
+	}()
 
 	// Start a goroutine to update the state from head notifications in the background
 	update := make(chan *types.Header)
@@ -749,6 +762,9 @@ func (f *faucet) loop() {
 	for {
 		select {
 		case head := <-heads:
+			subscribeTimeout.Stop()
+			subscribeTimeout.Reset(30 * time.Second)
+
 			// New head arrived, send if for state update if there's none running
 			select {
 			case update <- head:
@@ -756,6 +772,9 @@ func (f *faucet) loop() {
 			}
 
 		case <-f.update:
+			subscribeTimeout.Stop()
+			subscribeTimeout.Reset(30 * time.Second)
+
 			// Pending requests updated, stream to clients
 			f.lock.RLock()
 			for _, conn := range f.conns {
@@ -765,6 +784,16 @@ func (f *faucet) loop() {
 				}
 			}
 			f.lock.RUnlock()
+
+		case <-subscribeTimeout.C:
+			subscribeTimeout.Reset(30 * time.Second)
+
+			// Subscription timeout, try to resubscribe
+			if sub != nil {
+				sub.Unsubscribe()
+			}
+
+			sub = subscribeHead()
 		}
 	}
 }
