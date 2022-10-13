@@ -696,7 +696,6 @@ func (f *faucet) refresh(head *types.Header) error {
 func (f *faucet) loop() {
 	// Wait for chain events and push them to clients
 	heads := make(chan *types.Header, 16)
-	subscribeTimeout := time.NewTimer(30 * time.Second)
 
 	subscribeHead := func() ethereum.Subscription {
 		sub, err := f.client.SubscribeNewHead(context.Background(), heads)
@@ -758,11 +757,16 @@ func (f *faucet) loop() {
 			f.lock.RUnlock()
 		}
 	}()
+
 	// Wait for various events and assing to the appropriate background threads
+	subscribeTimeout := time.NewTimer(30 * time.Second)
+	
 	for {
 		select {
 		case head := <-heads:
-			subscribeTimeout.Stop()
+			if !subscribeTimeout.Stop() {
+				<-subscribeTimeout.C
+			}
 			subscribeTimeout.Reset(30 * time.Second)
 
 			// New head arrived, send if for state update if there's none running
@@ -772,7 +776,9 @@ func (f *faucet) loop() {
 			}
 
 		case <-f.update:
-			subscribeTimeout.Stop()
+			if !subscribeTimeout.Stop() {
+				<-subscribeTimeout.C
+			}
 			subscribeTimeout.Reset(30 * time.Second)
 
 			// Pending requests updated, stream to clients
