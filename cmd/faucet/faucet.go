@@ -108,6 +108,10 @@ var (
 	gitDate   = "" // Git commit date YYYYMMDD of the release (set via linker flags)
 )
 
+const (
+	subscribeTimeout = 30 * time.Second
+)
+
 func main() {
 	// Parse the flags and set up the logger to print everything requested
 	flag.Parse()
@@ -759,15 +763,15 @@ func (f *faucet) loop() {
 	}()
 
 	// Wait for various events and assing to the appropriate background threads
-	subscribeTimeout := time.NewTimer(30 * time.Second)
-	
+	subscribeTimeoutTimer := time.NewTimer(subscribeTimeout)
+
 	for {
 		select {
 		case head := <-heads:
-			if !subscribeTimeout.Stop() {
-				<-subscribeTimeout.C
+			if !subscribeTimeoutTimer.Stop() {
+				<-subscribeTimeoutTimer.C
 			}
-			subscribeTimeout.Reset(30 * time.Second)
+			subscribeTimeoutTimer.Reset(subscribeTimeout)
 
 			// New head arrived, send if for state update if there's none running
 			select {
@@ -776,10 +780,10 @@ func (f *faucet) loop() {
 			}
 
 		case <-f.update:
-			if !subscribeTimeout.Stop() {
-				<-subscribeTimeout.C
+			if !subscribeTimeoutTimer.Stop() {
+				<-subscribeTimeoutTimer.C
 			}
-			subscribeTimeout.Reset(30 * time.Second)
+			subscribeTimeoutTimer.Reset(subscribeTimeout)
 
 			// Pending requests updated, stream to clients
 			f.lock.RLock()
@@ -791,8 +795,8 @@ func (f *faucet) loop() {
 			}
 			f.lock.RUnlock()
 
-		case <-subscribeTimeout.C:
-			subscribeTimeout.Reset(30 * time.Second)
+		case <-subscribeTimeoutTimer.C:
+			subscribeTimeoutTimer.Reset(subscribeTimeout)
 
 			// Subscription timeout, try to resubscribe
 			if sub != nil {
