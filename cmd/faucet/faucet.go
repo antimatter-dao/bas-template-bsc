@@ -780,11 +780,6 @@ func (f *faucet) loop() {
 			}
 
 		case <-f.update:
-			if !subscribeTimeoutTimer.Stop() {
-				<-subscribeTimeoutTimer.C
-			}
-			subscribeTimeoutTimer.Reset(subscribeTimeout)
-
 			// Pending requests updated, stream to clients
 			f.lock.RLock()
 			for _, conn := range f.conns {
