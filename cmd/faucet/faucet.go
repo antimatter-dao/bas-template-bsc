@@ -41,6 +41,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/keystore"
@@ -105,6 +106,10 @@ var (
 var (
 	gitCommit = "" // Git SHA1 commit hash of the release (set via linker flags)
 	gitDate   = "" // Git commit date YYYYMMDD of the release (set via linker flags)
+)
+
+const (
+	subscribeTimeout = 30 * time.Second
 )
 
 func main() {
@@ -695,11 +700,22 @@ func (f *faucet) refresh(head *types.Header) error {
 func (f *faucet) loop() {
 	// Wait for chain events and push them to clients
 	heads := make(chan *types.Header, 16)
-	sub, err := f.client.SubscribeNewHead(context.Background(), heads)
-	if err != nil {
-		log.Crit("Failed to subscribe to head events", "err", err)
+
+	subscribeHead := func() ethereum.Subscription {
+		sub, err := f.client.SubscribeNewHead(context.Background(), heads)
+		if err != nil {
+			log.Crit("Failed to subscribe to head events", "err", err)
+			return nil
+		}
+		return sub
 	}
-	defer sub.Unsubscribe()
+
+	sub := subscribeHead()
+	defer func() {
+		if sub != nil {
+			sub.Unsubscribe()
+		}
+	}()
 
 	// Start a goroutine to update the state from head notifications in the background
 	update := make(chan *types.Header)
@@ -745,10 +761,18 @@ func (f *faucet) loop() {
 			f.lock.RUnlock()
 		}
 	}()
+
 	// Wait for various events and assing to the appropriate background threads
+	subscribeTimeoutTimer := time.NewTimer(subscribeTimeout)
+
 	for {
 		select {
 		case head := <-heads:
+			if !subscribeTimeoutTimer.Stop() {
+				<-subscribeTimeoutTimer.C
+			}
+			subscribeTimeoutTimer.Reset(subscribeTimeout)
+
 			// New head arrived, send if for state update if there's none running
 			select {
 			case update <- head:
@@ -765,6 +789,16 @@ func (f *faucet) loop() {
 				}
 			}
 			f.lock.RUnlock()
+
+		case <-subscribeTimeoutTimer.C:
+			subscribeTimeoutTimer.Reset(subscribeTimeout)
+
+			// Subscription timeout, try to resubscribe
+			if sub != nil {
+				sub.Unsubscribe()
+			}
+
+			sub = subscribeHead()
 		}
 	}
 }
