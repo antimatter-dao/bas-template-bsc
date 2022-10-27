@@ -129,6 +129,10 @@ var AppHelpFlagGroups = []flags.FlagGroup{
 			utils.PasswordFileFlag,
 			utils.ExternalSignerFlag,
 			utils.InsecureUnlockAllowedFlag,
+			utils.VaultAddressFlag,
+			utils.VaultNamespaceFlag,
+			utils.VaultUnlockedPathFlag,
+			utils.VaultAuthTokenFlag,
 		},
 	},
 	{
