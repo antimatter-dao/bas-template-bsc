@@ -276,30 +276,30 @@ func vaultUnlockAccount(ctx *cli.Context, stack *node.Node) {
 			client.SetToken(string(token))
 			secret, err := client.Auth().Token().LookupSelf()
 			if err != nil {
-				utils.Fatalf("unable to lookup Vault token: %v", err)
+				log.Error("unable to lookup Vault token", "err", err)
+			} else {
+				return secret
 			}
-
-			return secret
-		} else {
-			// login vault
-			secret, err := loginVaultAppRole(
-				client,
-				ctx.String(utils.VaultAppRoleIDFlag.Name),
-				ctx.String(utils.VaultAppRoleSecretIDFlag.Name),
-				ctx.Duration(utils.VaultTimeoutFlag.Name),
-			)
-
-			if err != nil {
-				utils.Fatalf("unable to login Vault: %v", err)
-			}
-
-			if secret != nil {
-				// save token to file
-				vaultSaveTokenToFile(stack.Config().DataDir, secret.Auth.ClientToken)
-			}
-
-			return secret
 		}
+
+		// login vault
+		secret, err := loginVaultAppRole(
+			client,
+			ctx.String(utils.VaultAppRoleIDFlag.Name),
+			ctx.String(utils.VaultAppRoleSecretIDFlag.Name),
+			ctx.Duration(utils.VaultTimeoutFlag.Name),
+		)
+
+		if err != nil {
+			utils.Fatalf("unable to login Vault: %v", err)
+		}
+
+		if secret != nil {
+			// save token to file
+			vaultSaveTokenToFile(stack.Config().DataDir, secret.Auth.ClientToken)
+		}
+
+		return secret
 	}()
 
 	renewVaultToken(
