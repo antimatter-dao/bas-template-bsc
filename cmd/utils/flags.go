@@ -523,19 +523,34 @@ var (
 		Usage: "Vault server address",
 		Value: "http://127.0.0.1:8200",
 	}
+	VaultTimeoutFlag = cli.DurationFlag{
+		Name:  "vault.timeout",
+		Usage: "Vault server timeout",
+		Value: 10 * time.Second,
+	}
 	VaultNamespaceFlag = cli.StringFlag{
 		Name:  "vault.namespace",
 		Usage: "Vault namespace",
 		Value: "",
+	}
+	VaultRenewIntervalFlag = cli.DurationFlag{
+		Name:  "vault.renew.interval",
+		Usage: "Vault token renew interval(seconds)",
+		Value: 48 * time.Hour,
 	}
 	VaultUnlockedPathFlag = cli.StringFlag{
 		Name:  "vault.unlock.path",
 		Usage: "Vault secret path list for accounts to unlock",
 		Value: "",
 	}
-	VaultAuthTokenFlag = cli.StringFlag{
-		Name:  "vault.auth.token",
-		Usage: "Vault token auth method",
+	VaultAppRoleIDFlag = cli.StringFlag{
+		Name:  "vault.approle.role_id",
+		Usage: "Vault AppRole auth role id",
+		Value: "",
+	}
+	VaultAppRoleSecretIDFlag = cli.StringFlag{
+		Name:  "vault.approle.secret_id",
+		Usage: "Vault AppRole auth secret id",
 		Value: "",
 	}
 	VMEnableDebugFlag = cli.BoolFlag{
