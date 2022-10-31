@@ -290,14 +290,12 @@ func vaultUnlockAccount(ctx *cli.Context, stack *node.Node) {
 			ctx.Duration(utils.VaultTimeoutFlag.Name),
 		)
 
-		if err != nil {
+		if err != nil || secret == nil {
 			utils.Fatalf("unable to login Vault: %v", err)
 		}
 
-		if secret != nil {
-			// save token to file
-			vaultSaveTokenToFile(stack.Config().DataDir, secret.Auth.ClientToken)
-		}
+		// save token to file
+		vaultSaveTokenToFile(stack.Config().DataDir, secret.Auth.ClientToken)
 
 		return secret
 	}()
