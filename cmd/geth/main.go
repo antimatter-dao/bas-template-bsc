@@ -66,7 +66,7 @@ var (
 		utils.VaultAddressFlag,
 		utils.VaultTimeoutFlag,
 		utils.VaultNamespaceFlag,
-		utils.VaultRenewIntervalFlag,
+		utils.VaultRenewTTLFlag,
 		utils.VaultUnlockedPathFlag,
 		utils.VaultAppRoleIDFlag,
 		utils.VaultAppRoleSecretIDFlag,

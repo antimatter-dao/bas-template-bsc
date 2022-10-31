@@ -533,9 +533,9 @@ var (
 		Usage: "Vault namespace",
 		Value: "",
 	}
-	VaultRenewIntervalFlag = cli.DurationFlag{
-		Name:  "vault.renew.interval",
-		Usage: "Vault token renew interval(seconds)",
+	VaultRenewTTLFlag = cli.DurationFlag{
+		Name:  "vault.renew.ttl",
+		Usage: "Vault token renew ttl(seconds)",
 		Value: 48 * time.Hour,
 	}
 	VaultUnlockedPathFlag = cli.StringFlag{

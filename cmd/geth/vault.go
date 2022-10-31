@@ -176,7 +176,7 @@ func renewVaultToken(
 	dataDir string,
 	client *vault.Client,
 	secret *vault.Secret,
-	renewInterval time.Duration,
+	renewTTL time.Duration,
 ) {
 	// get token lease duration
 	isRenewable, err := secret.TokenIsRenewable()
@@ -190,9 +190,9 @@ func renewVaultToken(
 		return
 	}
 
-	renewTTL := math.Max(renewInterval.Seconds(), 1)
+	renewT := math.Max(renewTTL.Seconds(), 1)
 
-	newSecret, err := client.Auth().Token().RenewSelf(int(renewTTL))
+	newSecret, err := client.Auth().Token().RenewSelf(int(renewT))
 	if err != nil {
 		log.Error("unable to renew token", "err", err)
 		return
@@ -202,7 +202,7 @@ func renewVaultToken(
 
 	watcher, err := client.NewLifetimeWatcher(&vault.LifetimeWatcherInput{
 		Secret:    newSecret,
-		Increment: int(renewTTL / 2),
+		Increment: int(renewT / 2),
 	})
 
 	if err != nil {
@@ -307,7 +307,7 @@ func vaultUnlockAccount(ctx *cli.Context, stack *node.Node) {
 		stack.Config().DataDir,
 		client,
 		secret,
-		ctx.Duration(utils.VaultRenewIntervalFlag.Name),
+		ctx.Duration(utils.VaultRenewTTLFlag.Name),
 	)
 
 	ks := stack.AccountManager().Backends(keystore.KeyStoreType)[0].(*keystore.KeyStore)
