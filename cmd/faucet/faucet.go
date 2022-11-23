@@ -61,6 +61,8 @@ import (
 	"github.com/ethereum/go-ethereum/p2p/nat"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/gorilla/websocket"
+
+	lru "github.com/hashicorp/golang-lru"
 )
 
 var (
@@ -270,6 +272,8 @@ type faucet struct {
 
 	bep2eInfos map[string]bep2eInfo
 	bep2eAbi   abi.ABI
+
+	fundedCache *lru.Cache // LRU cache of recently funded users
 }
 
 // wsConn wraps a websocket connection with a write mutex as the underlying
@@ -338,17 +342,23 @@ func newFaucet(genesis *core.Genesis, port int, enodes []*enode.Node, network ui
 	}
 	client := ethclient.NewClient(api)
 
+	lru, err := lru.New(20000)
+	if err != nil {
+		return nil, err
+	}
+
 	return &faucet{
-		config:     genesis.Config,
-		stack:      stack,
-		client:     client,
-		index:      index,
-		keystore:   ks,
-		account:    ks.Accounts()[0],
-		timeouts:   make(map[string]time.Time),
-		update:     make(chan struct{}, 1),
-		bep2eInfos: bep2eInfos,
-		bep2eAbi:   bep2eAbi,
+		config:      genesis.Config,
+		stack:       stack,
+		client:      client,
+		index:       index,
+		keystore:    ks,
+		account:     ks.Accounts()[0],
+		timeouts:    make(map[string]time.Time),
+		update:      make(chan struct{}, 1),
+		bep2eInfos:  bep2eInfos,
+		bep2eAbi:    bep2eAbi,
+		fundedCache: lru,
 	}, nil
 }
 
@@ -357,20 +367,28 @@ func newHttpFaucet(genesis *core.Genesis, rpcApi string, ks *keystore.KeyStore, 
 	if err != nil {
 		return nil, err
 	}
+
 	client, err := ethclient.Dial(rpcApi)
 	if err != nil {
 		return nil, err
 	}
+
+	lru, err := lru.New(20000)
+	if err != nil {
+		return nil, err
+	}
+
 	return &faucet{
-		config:     genesis.Config,
-		client:     client,
-		index:      index,
-		keystore:   ks,
-		account:    ks.Accounts()[0],
-		timeouts:   make(map[string]time.Time),
-		update:     make(chan struct{}, 1),
-		bep2eInfos: bep2eInfos,
-		bep2eAbi:   bep2eAbi,
+		config:      genesis.Config,
+		client:      client,
+		index:       index,
+		keystore:    ks,
+		account:     ks.Accounts()[0],
+		timeouts:    make(map[string]time.Time),
+		update:      make(chan struct{}, 1),
+		bep2eInfos:  bep2eInfos,
+		bep2eAbi:    bep2eAbi,
+		fundedCache: lru,
 	}, nil
 }
 
@@ -571,11 +589,28 @@ func (f *faucet) apiHandler(w http.ResponseWriter, r *http.Request) {
 
 		// Ensure the user didn't request funds too recently
 		f.lock.Lock()
+
+		// check if the user has already requested funds
+		if qosT, exist := f.fundedCache.Get(address); exist {
+			if time.Now().After(qosT.(time.Time)) {
+				f.fundedCache.Remove(address)
+			} else {
+				f.lock.Unlock()
+				if err = sendError(wsconn, errors.New("you have already requested funds recently, please try again later")); err != nil {
+					log.Warn("Failed to send request error to client", "err", err)
+					return
+				}
+				continue
+			}
+		}
+
 		var (
 			fund    bool
 			timeout time.Time
 		)
 		if timeout = f.timeouts[id]; time.Now().After(timeout) {
+			f.fundedCache.Add(address, time.Now().Add(time.Duration(*minutesFlag)*time.Minute))
+
 			var tx *types.Transaction
 			if msg.Symbol == "NativeToken" {
 				// User wasn't funded recently, create the funding transaction
@@ -627,6 +662,7 @@ func (f *faucet) apiHandler(w http.ResponseWriter, r *http.Request) {
 			grace := timeout / 288 // 24h timeout => 5m grace
 
 			f.timeouts[id] = time.Now().Add(timeout - grace)
+			f.fundedCache.Add(address, f.timeouts[id])
 			fund = true
 		}
 		f.lock.Unlock()
