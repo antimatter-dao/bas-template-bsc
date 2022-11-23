@@ -595,7 +595,9 @@ func (f *faucet) apiHandler(w http.ResponseWriter, r *http.Request) {
 			if time.Now().After(qosT.(time.Time)) {
 				f.fundedCache.Remove(address)
 			} else {
+				f.fundedCache.Add(address, time.Now().Add(time.Duration(*minutesFlag)*time.Minute))
 				f.lock.Unlock()
+
 				if err = sendError(wsconn, errors.New("you have already requested funds recently, please try again later")); err != nil {
 					log.Warn("Failed to send request error to client", "err", err)
 					return
