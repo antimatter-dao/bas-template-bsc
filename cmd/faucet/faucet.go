@@ -505,6 +505,10 @@ func (f *faucet) apiHandler(w http.ResponseWriter, r *http.Request) {
 		log.Warn("Failed to send initial header to client", "err", err)
 		return
 	}
+
+	sendCount := 0
+	requestTimestamp := time.Now().Add(time.Duration(-100) * time.Millisecond)
+
 	// Keep reading requests from the websocket until the connection breaks
 	for {
 		// Fetch the next funding request and validate against github
@@ -517,6 +521,26 @@ func (f *faucet) apiHandler(w http.ResponseWriter, r *http.Request) {
 		if err = conn.ReadJSON(&msg); err != nil {
 			return
 		}
+
+		// if send count > 100, return and close connection
+		if sendCount > 100 {
+			if err = sendError(wsconn, errors.New("too many requests from client")); err != nil {
+				log.Warn("Failed to send busy error to client", "err", err)
+			}
+
+			return
+		}
+		sendCount++
+
+		// if request timestamp < 100ms, return and close connection
+		if time.Since(requestTimestamp) < time.Duration(100)*time.Millisecond {
+			if err = sendError(wsconn, errors.New("too many requests from client")); err != nil {
+				log.Warn("Failed to send busy error to client", "err", err)
+			}
+
+			return
+		}
+
 		if !*noauthFlag && !strings.HasPrefix(msg.URL, "https://twitter.com/") && !strings.HasPrefix(msg.URL, "https://www.facebook.com/") {
 			if err = sendError(wsconn, errors.New("URL doesn't link to supported services")); err != nil {
 				log.Warn("Failed to send URL error to client", "err", err)
@@ -633,6 +657,8 @@ func (f *faucet) apiHandler(w http.ResponseWriter, r *http.Request) {
 
 		select {
 		case f.fundQueue <- req:
+			requestTimestamp = time.Now()
+
 			if err := sendSuccess(wsconn, "Funding request sent into queue, please waiting"); err != nil {
 				log.Warn("Failed to send funding success to client", "err", err)
 				return
@@ -649,6 +675,9 @@ func (f *faucet) apiHandler(w http.ResponseWriter, r *http.Request) {
 // refresh attempts to retrieve the latest header from the chain and extract the
 // associated faucet balance and nonce for connectivity caching.
 func (f *faucet) refresh(head *types.Header) error {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+
 	// Ensure a state update does not run for too long
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -680,13 +709,38 @@ func (f *faucet) refresh(head *types.Header) error {
 		}
 	}
 	// Everything succeeded, update the cached stats and eject old requests
-	f.lock.Lock()
 	f.head, f.balance = head, balance
 	f.price, f.nonce = price, nonce
 	for len(f.reqs) > 0 && f.reqs[0].Tx.Nonce() < f.nonce {
 		f.reqs = f.reqs[1:]
 	}
-	f.lock.Unlock()
+
+	// check transaction status
+	// if latest transaction timestamp is more than 1 min, remove it and send reset transaction
+	if len(f.reqs) > 0 && time.Now().After(f.reqs[0].Time.Add(time.Duration(*minutesFlag)*time.Minute)) {
+		// creanup the transaction
+		f.reqs = []*request{}
+
+		ctxRT, cancelRT := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancelRT()
+
+		// send reset transaction
+		resetPrice := new(big.Int).Mul(price, big.NewInt(2))
+		pendNoces, err := f.client.PendingNonceAt(ctxRT, f.account.Address)
+		if err != nil {
+			return nil
+		}
+
+		tx := types.NewTransaction(pendNoces, f.account.Address, big.NewInt(0), 21000, resetPrice, nil)
+		signed, err := f.keystore.SignTx(f.account, tx, f.config.ChainID)
+		if err != nil {
+			return err
+		}
+
+		if err := f.client.SendTransaction(ctxRT, signed); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
