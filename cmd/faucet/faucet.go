@@ -633,6 +633,10 @@ func (f *faucet) apiHandler(w http.ResponseWriter, r *http.Request) {
 
 		select {
 		case f.fundQueue <- req:
+			if err := sendSuccess(wsconn, "Funding request sent into queue, please waiting"); err != nil {
+				log.Warn("Failed to send funding success to client", "err", err)
+				return
+			}
 		default:
 			if err = sendError(wsconn, errors.New("faucet is busy, please try again later")); err != nil {
 				log.Warn("Failed to send busy error to client", "err", err)
