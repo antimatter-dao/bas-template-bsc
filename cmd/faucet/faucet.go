@@ -243,6 +243,16 @@ type request struct {
 	Tx      *types.Transaction `json:"tx"`      // Transaction funding the account
 }
 
+type fundReq struct {
+	Id       string
+	Username string
+	Avatar   string
+	Symbol   string
+	Tier     int64
+	Address  common.Address
+	Wsconn   *wsConn
+}
+
 type bep2eInfo struct {
 	Contract  common.Address
 	Amount    big.Int
@@ -263,10 +273,11 @@ type faucet struct {
 	nonce    uint64             // Current pending nonce of the faucet
 	price    *big.Int           // Current gas price to issue funds with
 
-	conns    []*wsConn            // Currently live websocket connections
-	timeouts map[string]time.Time // History of users and their funding timeouts
-	reqs     []*request           // Currently pending funding requests
-	update   chan struct{}        // Channel to signal request updates
+	conns     []*wsConn            // Currently live websocket connections
+	timeouts  map[string]time.Time // History of users and their funding timeouts
+	reqs      []*request           // Currently pending funding requests
+	update    chan struct{}        // Channel to signal request updates
+	fundQueue chan *fundReq        // Channel to signal funded requests
 
 	lock sync.RWMutex // Lock protecting the faucet's internals
 
@@ -356,6 +367,7 @@ func newFaucet(genesis *core.Genesis, port int, enodes []*enode.Node, network ui
 		account:     ks.Accounts()[0],
 		timeouts:    make(map[string]time.Time),
 		update:      make(chan struct{}, 1),
+		fundQueue:   make(chan *fundReq, 1024),
 		bep2eInfos:  bep2eInfos,
 		bep2eAbi:    bep2eAbi,
 		fundedCache: lru,
@@ -386,6 +398,7 @@ func newHttpFaucet(genesis *core.Genesis, rpcApi string, ks *keystore.KeyStore, 
 		account:     ks.Accounts()[0],
 		timeouts:    make(map[string]time.Time),
 		update:      make(chan struct{}, 1),
+		fundQueue:   make(chan *fundReq, 1024),
 		bep2eInfos:  bep2eInfos,
 		bep2eAbi:    bep2eAbi,
 		fundedCache: lru,
@@ -606,84 +619,25 @@ func (f *faucet) apiHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		var (
-			fund    bool
-			timeout time.Time
-		)
-		if timeout = f.timeouts[id]; time.Now().After(timeout) {
-			f.fundedCache.Add(address, time.Now().Add(time.Duration(*minutesFlag)*time.Minute))
-
-			var tx *types.Transaction
-			if msg.Symbol == "NativeToken" {
-				// User wasn't funded recently, create the funding transaction
-				amount := new(big.Int).Mul(big.NewInt(int64(*payoutFlag)), ether)
-				amount = new(big.Int).Mul(amount, new(big.Int).Exp(big.NewInt(5), big.NewInt(int64(msg.Tier)), nil))
-				amount = new(big.Int).Div(amount, new(big.Int).Exp(big.NewInt(2), big.NewInt(int64(msg.Tier)), nil))
-
-				tx = types.NewTransaction(f.nonce+uint64(len(f.reqs)), address, amount, 21000, f.price, nil)
-			} else {
-				tokenInfo, ok := f.bep2eInfos[msg.Symbol]
-				if !ok {
-					f.lock.Unlock()
-					log.Warn("Failed to find symbol", "symbol", msg.Symbol)
-					continue
-				}
-				input, err := f.bep2eAbi.Pack("transfer", address, &tokenInfo.Amount)
-				if err != nil {
-					f.lock.Unlock()
-					log.Warn("Failed to pack transfer transaction", "err", err)
-					continue
-				}
-				tx = types.NewTransaction(f.nonce+uint64(len(f.reqs)), tokenInfo.Contract, nil, 420000, f.price, input)
-			}
-			signed, err := f.keystore.SignTx(f.account, tx, f.config.ChainID)
-			if err != nil {
-				f.lock.Unlock()
-				if err = sendError(wsconn, err); err != nil {
-					log.Warn("Failed to send transaction creation error to client", "err", err)
-					return
-				}
-				continue
-			}
-			// Submit the transaction and mark as funded if successful
-			if err := f.client.SendTransaction(context.Background(), signed); err != nil {
-				f.lock.Unlock()
-				if err = sendError(wsconn, err); err != nil {
-					log.Warn("Failed to send transaction transmission error to client", "err", err)
-					return
-				}
-				continue
-			}
-			f.reqs = append(f.reqs, &request{
-				Avatar:  avatar,
-				Account: address,
-				Time:    time.Now(),
-				Tx:      signed,
-			})
-			timeout := time.Duration(*minutesFlag*int(math.Pow(3, float64(msg.Tier)))) * time.Minute
-			grace := timeout / 288 // 24h timeout => 5m grace
-
-			f.timeouts[id] = time.Now().Add(timeout - grace)
-			f.fundedCache.Add(address, f.timeouts[id])
-			fund = true
-		}
 		f.lock.Unlock()
 
-		// Send an error if too frequent funding, othewise a success
-		if !fund {
-			if err = sendError(wsconn, fmt.Errorf("%s left until next allowance", common.PrettyDuration(time.Until(timeout)))); err != nil { // nolint: gosimple
-				log.Warn("Failed to send funding error to client", "err", err)
+		req := &fundReq{
+			Id:       id,
+			Username: username,
+			Avatar:   avatar,
+			Symbol:   msg.Symbol,
+			Tier:     int64(msg.Tier),
+			Address:  address,
+			Wsconn:   wsconn,
+		}
+
+		select {
+		case f.fundQueue <- req:
+		default:
+			if err = sendError(wsconn, errors.New("faucet is busy, please try again later")); err != nil {
+				log.Warn("Failed to send busy error to client", "err", err)
 				return
 			}
-			continue
-		}
-		if err = sendSuccess(wsconn, fmt.Sprintf("Funding request accepted for %s into %s", username, address.Hex())); err != nil {
-			log.Warn("Failed to send funding success to client", "err", err)
-			return
-		}
-		select {
-		case f.update <- struct{}{}:
-		default:
 		}
 	}
 }
@@ -731,6 +685,109 @@ func (f *faucet) refresh(head *types.Header) error {
 	f.lock.Unlock()
 
 	return nil
+}
+
+func (f *faucet) fundHandle() {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+
+	defer func() {
+		select {
+		case f.update <- struct{}{}:
+		default:
+		}
+	}()
+
+	for {
+		var req *fundReq
+		ok := false
+
+		select {
+		case req, ok = <-f.fundQueue:
+			if !ok {
+				return
+			}
+		default:
+			return
+		}
+
+		id := req.Id
+		username := req.Username
+		avatar := req.Avatar
+		address := req.Address
+		symbol := req.Symbol
+		wsconn := req.Wsconn
+		tier := req.Tier
+
+		var (
+			fund    bool
+			timeout time.Time
+		)
+		if timeout = f.timeouts[id]; time.Now().After(timeout) {
+			f.fundedCache.Add(address, time.Now().Add(time.Duration(*minutesFlag)*time.Minute))
+
+			var tx *types.Transaction
+			if symbol == "NativeToken" {
+				// User wasn't funded recently, create the funding transaction
+				amount := new(big.Int).Mul(big.NewInt(int64(*payoutFlag)), ether)
+				amount = new(big.Int).Mul(amount, new(big.Int).Exp(big.NewInt(5), big.NewInt(tier), nil))
+				amount = new(big.Int).Div(amount, new(big.Int).Exp(big.NewInt(2), big.NewInt(tier), nil))
+
+				tx = types.NewTransaction(f.nonce+uint64(len(f.reqs)), address, amount, 21000, f.price, nil)
+			} else {
+				tokenInfo, ok := f.bep2eInfos[symbol]
+				if !ok {
+					log.Warn("Failed to find symbol", "symbol", symbol)
+					continue
+				}
+				input, err := f.bep2eAbi.Pack("transfer", address, &tokenInfo.Amount)
+				if err != nil {
+					log.Warn("Failed to pack transfer transaction", "err", err)
+					continue
+				}
+				tx = types.NewTransaction(f.nonce+uint64(len(f.reqs)), tokenInfo.Contract, nil, 420000, f.price, input)
+			}
+			signed, err := f.keystore.SignTx(f.account, tx, f.config.ChainID)
+			if err != nil {
+				if err = sendError(wsconn, err); err != nil {
+					log.Warn("Failed to send transaction creation error to client", "err", err)
+				}
+				continue
+			}
+			// Submit the transaction and mark as funded if successful
+			if err := f.client.SendTransaction(context.Background(), signed); err != nil {
+				if err = sendError(wsconn, err); err != nil {
+					log.Warn("Failed to send transaction transmission error to client", "err", err)
+				}
+				continue
+			}
+			f.reqs = append(f.reqs, &request{
+				Avatar:  avatar,
+				Account: address,
+				Time:    time.Now(),
+				Tx:      signed,
+			})
+			timeout := time.Duration(*minutesFlag*int(math.Pow(3, float64(tier)))) * time.Minute
+			grace := timeout / 288 // 24h timeout => 5m grace
+
+			f.timeouts[id] = time.Now().Add(timeout - grace)
+			f.fundedCache.Add(address, f.timeouts[id])
+			fund = true
+		}
+
+		// Send an error if too frequent funding, othewise a success
+		if !fund {
+			if err := sendError(wsconn, fmt.Errorf("%s left until next allowance", common.PrettyDuration(time.Until(timeout)))); err != nil { // nolint: gosimple
+				log.Warn("Failed to send funding error to client", "err", err)
+			}
+			continue
+		}
+
+		if err := sendSuccess(wsconn, fmt.Sprintf("Funding request accepted for %s into %s", username, address.Hex())); err != nil {
+			log.Warn("Failed to send funding success to client", "err", err)
+			return
+		}
+	}
 }
 
 // loop keeps waiting for interesting events and pushes them out to connected
@@ -797,6 +854,8 @@ func (f *faucet) loop() {
 				}
 			}
 			f.lock.RUnlock()
+
+			f.fundHandle()
 		}
 	}()
 
