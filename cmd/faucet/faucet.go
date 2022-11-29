@@ -237,6 +237,7 @@ func main() {
 
 // request represents an accepted funding request.
 type request struct {
+	Id      string             `json:"-"`
 	Avatar  string             `json:"avatar"`  // Avatar URL to make the UI nicer
 	Account common.Address     `json:"account"` // Ethereum address being funded
 	Time    time.Time          `json:"time"`    // Timestamp when the request was accepted
@@ -711,35 +712,47 @@ func (f *faucet) refresh(head *types.Header) error {
 	// Everything succeeded, update the cached stats and eject old requests
 	f.head, f.balance = head, balance
 	f.price, f.nonce = price, nonce
+
 	for len(f.reqs) > 0 && f.reqs[0].Tx.Nonce() < f.nonce {
 		f.reqs = f.reqs[1:]
 	}
 
 	// check transaction status
-	// if latest transaction timestamp is more than 1 min, remove it and send reset transaction
-	if len(f.reqs) > 0 && time.Now().After(f.reqs[0].Time.Add(time.Duration(*minutesFlag)*time.Minute)) {
-		// creanup the transaction
-		f.reqs = []*request{}
+	// if transaction timestamp is more than 1 min, send cancel transaction and remove it
+	for len(f.reqs) > 0 && time.Now().After(f.reqs[0].Time.Add(time.Minute)) {
+		txNonce := f.reqs[0].Tx.Nonce()
+		txToAddress := f.reqs[0].Account
+		id := f.reqs[0].Id
 
-		ctxRT, cancelRT := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancelRT()
-
-		// send reset transaction
+		// send cancel transaction
 		resetPrice := new(big.Int).Mul(price, big.NewInt(2))
-		pendNoces, err := f.client.PendingNonceAt(ctxRT, f.account.Address)
-		if err != nil {
-			return nil
-		}
 
-		tx := types.NewTransaction(pendNoces, f.account.Address, big.NewInt(0), 21000, resetPrice, nil)
+		tx := types.NewTransaction(txNonce, f.account.Address, big.NewInt(0), 21000, resetPrice, nil)
 		signed, err := f.keystore.SignTx(f.account, tx, f.config.ChainID)
 		if err != nil {
 			return err
 		}
 
-		if err := f.client.SendTransaction(ctxRT, signed); err != nil {
+		err = func(signed *types.Transaction) error {
+			ctxRT, cancelRT := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancelRT()
+
+			if err := f.client.SendTransaction(ctxRT, signed); err != nil {
+				return err
+			}
+
+			return nil
+		}(signed)
+
+		if err != nil {
 			return err
 		}
+
+		// creanup the transaction
+		f.reqs = f.reqs[1:]
+
+		f.fundedCache.Remove(txToAddress)
+		delete(f.timeouts, id)
 	}
 
 	return nil
@@ -820,6 +833,7 @@ func (f *faucet) fundHandle() {
 				continue
 			}
 			f.reqs = append(f.reqs, &request{
+				Id:      id,
 				Avatar:  avatar,
 				Account: address,
 				Time:    time.Now(),
