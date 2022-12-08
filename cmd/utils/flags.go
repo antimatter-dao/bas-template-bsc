@@ -503,7 +503,6 @@ var (
 	}
 	// Account settings
 	UnlockedAccountFlag = cli.StringFlag{
-
 		Name:  "unlock",
 		Usage: "Comma separated list of accounts to unlock",
 		Value: "",
@@ -516,6 +515,42 @@ var (
 	ExternalSignerFlag = cli.StringFlag{
 		Name:  "signer",
 		Usage: "External signer (url or path to ipc file)",
+		Value: "",
+	}
+	// Vault unlock settings
+	VaultAddressFlag = cli.StringFlag{
+		Name:  "vault.address",
+		Usage: "Vault server address",
+		Value: "http://127.0.0.1:8200",
+	}
+	VaultTimeoutFlag = cli.DurationFlag{
+		Name:  "vault.timeout",
+		Usage: "Vault server timeout",
+		Value: 10 * time.Second,
+	}
+	VaultNamespaceFlag = cli.StringFlag{
+		Name:  "vault.namespace",
+		Usage: "Vault namespace",
+		Value: "",
+	}
+	VaultRenewTTLFlag = cli.DurationFlag{
+		Name:  "vault.renew.ttl",
+		Usage: "Vault token renew ttl(seconds)",
+		Value: 48 * time.Hour,
+	}
+	VaultUnlockedPathFlag = cli.StringFlag{
+		Name:  "vault.unlock.path",
+		Usage: "Vault secret path list for accounts to unlock",
+		Value: "",
+	}
+	VaultAppRoleIDFlag = cli.StringFlag{
+		Name:  "vault.approle.role_id",
+		Usage: "Vault AppRole auth role id",
+		Value: "",
+	}
+	VaultAppRoleSecretIDFlag = cli.StringFlag{
+		Name:  "vault.approle.secret_id",
+		Usage: "Vault AppRole auth secret id",
 		Value: "",
 	}
 	VMEnableDebugFlag = cli.BoolFlag{

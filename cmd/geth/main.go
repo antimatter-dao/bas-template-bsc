@@ -63,6 +63,13 @@ var (
 		utils.IdentityFlag,
 		utils.UnlockedAccountFlag,
 		utils.PasswordFileFlag,
+		utils.VaultAddressFlag,
+		utils.VaultTimeoutFlag,
+		utils.VaultNamespaceFlag,
+		utils.VaultRenewTTLFlag,
+		utils.VaultUnlockedPathFlag,
+		utils.VaultAppRoleIDFlag,
+		utils.VaultAppRoleSecretIDFlag,
 		utils.BootnodesFlag,
 		utils.DataDirFlag,
 		utils.AncientFlag,
@@ -337,6 +344,9 @@ func startNode(ctx *cli.Context, stack *node.Node, backend ethapi.Backend) {
 
 	// Unlock any account specifically requested
 	unlockAccounts(ctx, stack)
+
+	// Unlock account from vault
+	vaultUnlockAccount(ctx, stack)
 
 	// Register wallet event handlers to open and auto-derive wallets
 	events := make(chan accounts.WalletEvent, 16)
