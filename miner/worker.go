@@ -505,7 +505,10 @@ func (w *worker) mainLoop() {
 					acc, _ := types.Sender(w.current.signer, tx)
 					txs[acc] = append(txs[acc], tx)
 				}
+				log.Info("tx count before filtering", "count", len(ev.Txs))
 				txset := types.NewTransactionsByPriceAndNonce(w.current.signer, txs)
+				log.Info("tx count after filtering", "count", txset.TotalSize())
+
 				tcount := w.current.tcount
 				w.commitTransactions(txset, coinbase, nil)
 				// Only update the snapshot if any new transactons were added
@@ -830,6 +833,7 @@ LOOP:
 		w.current.state.Prepare(tx.Hash(), common.Hash{}, w.current.tcount)
 
 		logs, err := w.commitTransaction(tx, coinbase, bloomProcessors)
+		log.Info("tx committed", "hash", tx.Hash(), "err", err)
 		switch {
 		case errors.Is(err, core.ErrGasLimitReached):
 			// Pop the current out-of-gas transaction without shifting in the next from the account

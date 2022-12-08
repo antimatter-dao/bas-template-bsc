@@ -426,9 +426,10 @@ func (s *TxByPriceAndTime) Pop() interface{} {
 // transactions in a profit-maximizing sorted order, while supporting removing
 // entire batches of transactions for non-executable accounts.
 type TransactionsByPriceAndNonce struct {
-	txs    map[common.Address]Transactions // Per account nonce-sorted list of transactions
-	heads  TxByPriceAndTime                // Next transaction for each unique account (price heap)
-	signer Signer                          // Signer for the set of transactions
+	txs       map[common.Address]Transactions // Per account nonce-sorted list of transactions
+	heads     TxByPriceAndTime                // Next transaction for each unique account (price heap)
+	signer    Signer                          // Signer for the set of transactions
+	totalSize int                             // count transactions for debugging
 }
 
 // NewTransactionsByPriceAndNonce creates a transaction set that can retrieve
@@ -437,6 +438,7 @@ type TransactionsByPriceAndNonce struct {
 // Note, the input map is reowned so the caller should not interact any more with
 // if after providing it to the constructor.
 func NewTransactionsByPriceAndNonce(signer Signer, txs map[common.Address]Transactions) *TransactionsByPriceAndNonce {
+	totalSize := 0
 	// Initialize a price and received time based heap with the head transactions
 	heads := make(TxByPriceAndTime, 0, len(txs))
 	for from, accTxs := range txs {
@@ -445,6 +447,7 @@ func NewTransactionsByPriceAndNonce(signer Signer, txs map[common.Address]Transa
 			delete(txs, from)
 			continue
 		}
+		totalSize += len(accTxs)
 		heads = append(heads, accTxs[0])
 		txs[from] = accTxs[1:]
 	}
@@ -452,9 +455,10 @@ func NewTransactionsByPriceAndNonce(signer Signer, txs map[common.Address]Transa
 
 	// Assemble and return the transaction set
 	return &TransactionsByPriceAndNonce{
-		txs:    txs,
-		heads:  heads,
-		signer: signer,
+		txs:       txs,
+		heads:     heads,
+		signer:    signer,
+		totalSize: totalSize,
 	}
 }
 
@@ -486,6 +490,10 @@ func (t *TransactionsByPriceAndNonce) Pop() {
 
 func (t *TransactionsByPriceAndNonce) CurrentSize() int {
 	return len(t.heads)
+}
+
+func (t *TransactionsByPriceAndNonce) TotalSize() int {
+	return t.totalSize
 }
 
 // Message is a fully derived transaction and implements core.Message
