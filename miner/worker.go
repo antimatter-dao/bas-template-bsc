@@ -963,7 +963,7 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 			}
 		}
 		if len(remoteTxs) > 0 {
-			log.Info("try to seal remote transactions", "accountCount", len(localTxs))
+			log.Info("try to seal remote transactions", "accountCount", len(remoteTxs))
 			txs := types.NewTransactionsByPriceAndNonce(w.current.signer, remoteTxs)
 			if w.commitTransactions(txs, w.coinbase, interrupt) {
 				return
