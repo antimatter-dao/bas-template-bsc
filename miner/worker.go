@@ -505,9 +505,7 @@ func (w *worker) mainLoop() {
 					acc, _ := types.Sender(w.current.signer, tx)
 					txs[acc] = append(txs[acc], tx)
 				}
-				log.Info("tx count before filtering", "count", len(ev.Txs))
 				txset := types.NewTransactionsByPriceAndNonce(w.current.signer, txs)
-				log.Info("tx count after filtering", "count", txset.TotalSize())
 
 				tcount := w.current.tcount
 				w.commitTransactions(txset, coinbase, nil)
@@ -777,6 +775,8 @@ func (w *worker) commitTransactions(txs *types.TransactionsByPriceAndNonce, coin
 	}
 	bloomProcessors := core.NewAsyncReceiptBloomGenerator(processorCapacity)
 
+	log.Info("commit new work", "txCount", txs.TotalSize())
+
 LOOP:
 	for {
 		// In the following three cases, we will interrupt the execution of the transaction.
@@ -950,17 +950,20 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 		localTxs, remoteTxs := make(map[common.Address]types.Transactions), pending
 		for _, account := range w.eth.TxPool().Locals() {
 			if txs := remoteTxs[account]; len(txs) > 0 {
+				log.Info("move transactions from remote to local", "count", txs.Len())
 				delete(remoteTxs, account)
 				localTxs[account] = txs
 			}
 		}
 		if len(localTxs) > 0 {
+			log.Info("try to seal local transactions", "accountCount", len(localTxs))
 			txs := types.NewTransactionsByPriceAndNonce(w.current.signer, localTxs)
 			if w.commitTransactions(txs, w.coinbase, interrupt) {
 				return
 			}
 		}
 		if len(remoteTxs) > 0 {
+			log.Info("try to seal remote transactions", "accountCount", len(localTxs))
 			txs := types.NewTransactionsByPriceAndNonce(w.current.signer, remoteTxs)
 			if w.commitTransactions(txs, w.coinbase, interrupt) {
 				return

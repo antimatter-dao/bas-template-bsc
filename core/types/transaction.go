@@ -27,6 +27,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rlp"
 )
 
@@ -444,6 +445,7 @@ func NewTransactionsByPriceAndNonce(signer Signer, txs map[common.Address]Transa
 	for from, accTxs := range txs {
 		// Ensure the sender address is from the signer
 		if acc, _ := Sender(signer, accTxs[0]); acc != from {
+			log.Warn("remove transactions whose singer invalid", "from", from)
 			delete(txs, from)
 			continue
 		}
