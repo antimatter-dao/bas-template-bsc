@@ -719,15 +719,17 @@ func (f *faucet) refresh(head *types.Header) error {
 
 	// check transaction status
 	// if transaction timestamp is more than 1 min, send cancel transaction and remove it
+
+	cancelNonce := nonce
+
 	for len(f.reqs) > 0 && time.Now().After(f.reqs[0].Time.Add(time.Minute)) {
-		txNonce := f.reqs[0].Tx.Nonce()
 		txToAddress := f.reqs[0].Account
 		id := f.reqs[0].Id
 
 		// send cancel transaction
 		resetPrice := new(big.Int).Mul(price, big.NewInt(2))
 
-		tx := types.NewTransaction(txNonce, f.account.Address, big.NewInt(0), 21000, resetPrice, nil)
+		tx := types.NewTransaction(cancelNonce, f.account.Address, big.NewInt(0), 21000, resetPrice, nil)
 		signed, err := f.keystore.SignTx(f.account, tx, f.config.ChainID)
 		if err != nil {
 			return err
@@ -750,6 +752,7 @@ func (f *faucet) refresh(head *types.Header) error {
 
 		// creanup the transaction
 		f.reqs = f.reqs[1:]
+		cancelNonce++
 
 		f.fundedCache.Remove(txToAddress)
 		delete(f.timeouts, id)
