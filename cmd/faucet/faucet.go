@@ -713,49 +713,16 @@ func (f *faucet) refresh(head *types.Header) error {
 	f.head, f.balance = head, balance
 	f.price, f.nonce = price, nonce
 
-	for len(f.reqs) > 0 && f.reqs[0].Tx.Nonce() < f.nonce {
-		f.reqs = f.reqs[1:]
-	}
+	for len(f.reqs) > 0 {
+		if f.reqs[0].Tx.Nonce() < f.nonce {
+			log.Info("Funding request consumed", "id", f.reqs[0].Id, "id", f.reqs[0].Id, "address", f.reqs[0].Account)
 
-	// check transaction status
-	// if transaction timestamp is more than 1 min, send cancel transaction and remove it
+			f.reqs = f.reqs[1:]
+		} else if time.Now().After(f.reqs[0].Time.Add(time.Minute)) {
+			log.Error("Funding request timed out", "id", f.reqs[0].Id, "id", f.reqs[0].Id, "address", f.reqs[0].Account)
 
-	cancelNonce := nonce
-
-	for len(f.reqs) > 0 && time.Now().After(f.reqs[0].Time.Add(time.Minute)) {
-		txToAddress := f.reqs[0].Account
-		id := f.reqs[0].Id
-
-		// send cancel transaction
-		resetPrice := new(big.Int).Mul(price, big.NewInt(2))
-
-		tx := types.NewTransaction(cancelNonce, f.account.Address, big.NewInt(0), 21000, resetPrice, nil)
-		signed, err := f.keystore.SignTx(f.account, tx, f.config.ChainID)
-		if err != nil {
-			return err
+			f.reqs = f.reqs[1:]
 		}
-
-		err = func(signed *types.Transaction) error {
-			ctxRT, cancelRT := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancelRT()
-
-			if err := f.client.SendTransaction(ctxRT, signed); err != nil {
-				return err
-			}
-
-			return nil
-		}(signed)
-
-		if err != nil {
-			return err
-		}
-
-		// creanup the transaction
-		f.reqs = f.reqs[1:]
-		cancelNonce++
-
-		f.fundedCache.Remove(txToAddress)
-		delete(f.timeouts, id)
 	}
 
 	return nil
