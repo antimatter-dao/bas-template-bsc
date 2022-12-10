@@ -790,9 +790,9 @@ func (f *faucet) refresh(head *types.Header) error {
 			log.Error("Funding request timed out", "id", f.reqs[0].Id, "id", f.reqs[0].Id, "address", f.reqs[0].Account)
 
 			f.reqs = f.reqs[1:]
+		} else {
+			break
 		}
-
-		break
 	}
 
 	timestamp := time.Unix(int64(head.Time), 0)
