@@ -260,6 +260,83 @@ type bep2eInfo struct {
 	AmountStr string
 }
 
+type faucetState struct {
+	// The current state of the faucet
+	Header     *types.Header
+	Reqs       []*request
+	Balance    *big.Int
+	Nonce      uint64
+	Price      *big.Int
+	PeerNumber int
+}
+
+type faucetStateBroadcast struct {
+	source         <-chan *faucetState
+	listeners      []chan *faucetState
+	addListener    chan chan *faucetState
+	removeListener chan (<-chan *faucetState)
+}
+
+func (s *faucetStateBroadcast) Subscribe() <-chan *faucetState {
+	newListener := make(chan *faucetState, 1)
+	s.addListener <- newListener
+	return newListener
+}
+
+func (s *faucetStateBroadcast) Unsubscription(channel <-chan *faucetState) {
+	s.removeListener <- channel
+}
+
+func newFaucetStateBroadcast(source <-chan *faucetState) *faucetStateBroadcast {
+	service := &faucetStateBroadcast{
+		source:         source,
+		listeners:      make([]chan *faucetState, 0),
+		addListener:    make(chan chan *faucetState),
+		removeListener: make(chan (<-chan *faucetState)),
+	}
+	go service.serve()
+	return service
+}
+
+func (s *faucetStateBroadcast) serve() {
+	defer func() {
+		for _, listener := range s.listeners {
+			if listener != nil {
+				close(listener)
+			}
+		}
+	}()
+
+	for {
+		select {
+		case newListener := <-s.addListener:
+			s.listeners = append(s.listeners, newListener)
+		case listenerToRemove := <-s.removeListener:
+			for i, ch := range s.listeners {
+				if ch == listenerToRemove {
+					s.listeners[i] = s.listeners[len(s.listeners)-1]
+					s.listeners = s.listeners[:len(s.listeners)-1]
+					close(ch)
+					break
+				}
+			}
+		case val, ok := <-s.source:
+			if !ok {
+				return
+			}
+			for _, listener := range s.listeners {
+				if listener != nil {
+					select {
+					case listener <- val:
+						return
+					default:
+					}
+				}
+			}
+		}
+	}
+}
+
 // faucet represents a crypto faucet backed by an Ethereum light client.
 type faucet struct {
 	config *params.ChainConfig // Chain configurations for signing
@@ -274,11 +351,13 @@ type faucet struct {
 	nonce    uint64             // Current pending nonce of the faucet
 	price    *big.Int           // Current gas price to issue funds with
 
-	conns     []*wsConn            // Currently live websocket connections
 	timeouts  map[string]time.Time // History of users and their funding timeouts
 	reqs      []*request           // Currently pending funding requests
 	update    chan struct{}        // Channel to signal request updates
 	fundQueue chan *fundReq        // Channel to signal funded requests
+
+	stateUpdate chan *faucetState     // Channel to signal faucet state updates
+	faucetState *faucetStateBroadcast // Broadcast channel for faucet state
 
 	lock sync.RWMutex // Lock protecting the faucet's internals
 
@@ -359,6 +438,8 @@ func newFaucet(genesis *core.Genesis, port int, enodes []*enode.Node, network ui
 		return nil, err
 	}
 
+	stateUpdate := make(chan *faucetState, 1)
+
 	return &faucet{
 		config:      genesis.Config,
 		stack:       stack,
@@ -371,6 +452,8 @@ func newFaucet(genesis *core.Genesis, port int, enodes []*enode.Node, network ui
 		fundQueue:   make(chan *fundReq, 1024),
 		bep2eInfos:  bep2eInfos,
 		bep2eAbi:    bep2eAbi,
+		stateUpdate: stateUpdate,
+		faucetState: newFaucetStateBroadcast(stateUpdate),
 		fundedCache: lru,
 	}, nil
 }
@@ -391,6 +474,8 @@ func newHttpFaucet(genesis *core.Genesis, rpcApi string, ks *keystore.KeyStore, 
 		return nil, err
 	}
 
+	stateUpdate := make(chan *faucetState, 1)
+
 	return &faucet{
 		config:      genesis.Config,
 		client:      client,
@@ -402,6 +487,8 @@ func newHttpFaucet(genesis *core.Genesis, rpcApi string, ks *keystore.KeyStore, 
 		fundQueue:   make(chan *fundReq, 1024),
 		bep2eInfos:  bep2eInfos,
 		bep2eAbi:    bep2eAbi,
+		stateUpdate: stateUpdate,
+		faucetState: newFaucetStateBroadcast(stateUpdate),
 		fundedCache: lru,
 	}, nil
 }
@@ -411,6 +498,9 @@ func (f *faucet) close() error {
 	if f.stack == nil {
 		return nil
 	}
+
+	close(f.stateUpdate)
+
 	return f.stack.Close()
 }
 
@@ -441,71 +531,25 @@ func (f *faucet) apiHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Start tracking the connection and drop at the end
 	defer conn.Close()
-
-	f.lock.Lock()
 	wsconn := &wsConn{conn: conn}
-	f.conns = append(f.conns, wsconn)
-	f.lock.Unlock()
 
-	defer func() {
-		f.lock.Lock()
-		for i, c := range f.conns {
-			if c.conn == conn {
-				f.conns = append(f.conns[:i], f.conns[i+1:]...)
-				break
-			}
-		}
-		f.lock.Unlock()
-	}()
-	// Gather the initial stats from the network to report
-	var (
-		head    *types.Header
-		balance *big.Int
-		nonce   uint64
-	)
-	for head == nil || balance == nil {
-		// Retrieve the current stats cached by the faucet
-		f.lock.RLock()
-		if f.head != nil {
-			head = types.CopyHeader(f.head)
-		}
-		if f.balance != nil {
-			balance = new(big.Int).Set(f.balance)
-		}
-		nonce = f.nonce
-		f.lock.RUnlock()
+	// Check source IP rate limit
+	ip := ""
+	if ip == "" {
+		ip = r.Header.Get("X-Real-IP")
+	}
+	if ip == "" {
+		ip = r.Header.Get("X-Forwarded-For")
+	}
+	if ip == "" {
+		ip = r.RemoteAddr
+	}
 
-		if head == nil || balance == nil {
-			// Report the faucet offline until initial stats are ready
-			//lint:ignore ST1005 This error is to be displayed in the browser
-			if err = sendError(wsconn, errors.New("Faucet offline")); err != nil {
-				log.Warn("Failed to send faucet error to client", "err", err)
-				return
-			}
-			time.Sleep(3 * time.Second)
-		}
-	}
-	// Send over the initial stats and the latest header
-	f.lock.RLock()
-	reqs := f.reqs
-	f.lock.RUnlock()
-	peerCount := -1
-	if f.stack != nil {
-		peerCount = f.stack.Server().PeerCount()
-	}
-	if err = send(wsconn, map[string]interface{}{
-		"funds":    new(big.Int).Div(balance, ether),
-		"funded":   nonce,
-		"peers":    peerCount,
-		"requests": reqs,
-	}, 3*time.Second); err != nil {
-		log.Warn("Failed to send initial stats to client", "err", err)
-		return
-	}
-	if err = send(wsconn, head, 3*time.Second); err != nil {
-		log.Warn("Failed to send initial header to client", "err", err)
-		return
-	}
+	log.Info("New clinet request", "ip", ip)
+
+	// register static broadcast
+	faucetState := f.faucetState.Subscribe()
+	defer f.faucetState.Unsubscription(faucetState)
 
 	sendCount := 0
 	requestTimestamp := time.Now().Add(time.Duration(-100) * time.Millisecond)
@@ -596,6 +640,27 @@ func (f *faucet) apiHandler(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 		}
+
+		select {
+		case newState := <-faucetState:
+			if err := send(wsconn, map[string]interface{}{
+				"funds":    new(big.Int).Div(newState.Balance, ether),
+				"funded":   newState.Nonce,
+				"peers":    newState.PeerNumber,
+				"requests": newState.Reqs,
+			}, time.Second); err != nil {
+				log.Warn("Failed to send stats to client", "err", err)
+				return
+			}
+
+			if err := send(wsconn, newState.Header, time.Second); err != nil {
+				log.Warn("Failed to send header to client", "err", err)
+				return
+			}
+
+		default:
+		}
+
 		// Retrieve the Ethereum address to fund, the requesting user and a profile picture
 		var (
 			id       string
@@ -724,6 +789,17 @@ func (f *faucet) refresh(head *types.Header) error {
 			f.reqs = f.reqs[1:]
 		}
 	}
+
+	timestamp := time.Unix(int64(head.Time), 0)
+	log.Info(
+		"Updated faucet state",
+		"number", head.Number,
+		"hash", head.Hash(),
+		"age", common.PrettyAge(timestamp),
+		"balance", balance,
+		"nonce", nonce,
+		"price", price,
+	)
 
 	return nil
 }
@@ -869,35 +945,31 @@ func (f *faucet) loop() {
 				log.Warn("Failed to update faucet state", "block", head.Number, "hash", head.Hash(), "err", err)
 				continue
 			}
-			// Faucet state retrieved, update locally and send to clients
-			f.lock.RLock()
-			log.Info("Updated faucet state", "number", head.Number, "hash", head.Hash(), "age", common.PrettyAge(timestamp), "balance", f.balance, "nonce", f.nonce, "price", f.price)
-
-			balance := new(big.Int).Div(f.balance, ether)
-			peers := -1
-			if f.stack != nil {
-				peers = f.stack.Server().PeerCount()
-			}
-
-			for _, conn := range f.conns {
-				if err := send(conn, map[string]interface{}{
-					"funds":    balance,
-					"funded":   f.nonce,
-					"peers":    peers,
-					"requests": f.reqs,
-				}, time.Second); err != nil {
-					log.Warn("Failed to send stats to client", "err", err)
-					conn.conn.Close()
-					continue
-				}
-				if err := send(conn, head, time.Second); err != nil {
-					log.Warn("Failed to send header to client", "err", err)
-					conn.conn.Close()
-				}
-			}
-			f.lock.RUnlock()
 
 			f.fundHandle()
+
+			f.lock.RLock()
+
+			peerCount := -1
+			if f.stack != nil {
+				peerCount = f.stack.Server().PeerCount()
+			}
+
+			newState := &faucetState{
+				Header:     head,
+				Reqs:       append([]*request{}, f.reqs...),
+				Balance:    f.balance,
+				Nonce:      f.nonce,
+				Price:      f.price,
+				PeerNumber: peerCount,
+			}
+
+			select {
+			case f.stateUpdate <- newState:
+			default:
+			}
+
+			f.lock.RUnlock()
 		}
 	}()
 
@@ -917,18 +989,6 @@ func (f *faucet) loop() {
 			case update <- head:
 			default:
 			}
-
-		case <-f.update:
-			// Pending requests updated, stream to clients
-			f.lock.RLock()
-			for _, conn := range f.conns {
-				if err := send(conn, map[string]interface{}{"requests": f.reqs}, time.Second); err != nil {
-					log.Warn("Failed to send requests to client", "err", err)
-					conn.conn.Close()
-				}
-			}
-			f.lock.RUnlock()
-
 		case <-subscribeTimeoutTimer.C:
 			subscribeTimeoutTimer.Reset(subscribeTimeout)
 
