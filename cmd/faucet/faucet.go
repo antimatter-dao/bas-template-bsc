@@ -296,7 +296,7 @@ func (s *faucetStateBroadcast) Unsubscription(channel <-chan *faucetState) {
 
 func newFaucetStateBroadcast() *faucetStateBroadcast {
 	service := &faucetStateBroadcast{
-		source:         make(chan *faucetState),
+		source:         make(chan *faucetState, 1),
 		listeners:      make([]chan *faucetState, 0),
 		addListener:    make(chan chan *faucetState),
 		removeListener: make(chan (<-chan *faucetState)),
@@ -335,7 +335,6 @@ func (s *faucetStateBroadcast) serve() {
 				if listener != nil {
 					select {
 					case listener <- val:
-						return
 					default:
 					}
 				}
