@@ -791,6 +791,8 @@ func (f *faucet) refresh(head *types.Header) error {
 
 			f.reqs = f.reqs[1:]
 		}
+
+		break
 	}
 
 	timestamp := time.Unix(int64(head.Time), 0)
