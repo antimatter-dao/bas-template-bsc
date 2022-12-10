@@ -271,10 +271,17 @@ type faucetState struct {
 }
 
 type faucetStateBroadcast struct {
-	source         <-chan *faucetState
+	source         chan *faucetState
 	listeners      []chan *faucetState
 	addListener    chan chan *faucetState
 	removeListener chan (<-chan *faucetState)
+}
+
+func (s *faucetStateBroadcast) Broadcast(state *faucetState) {
+	select {
+	case s.source <- state:
+	default:
+	}
 }
 
 func (s *faucetStateBroadcast) Subscribe() <-chan *faucetState {
@@ -287,9 +294,9 @@ func (s *faucetStateBroadcast) Unsubscription(channel <-chan *faucetState) {
 	s.removeListener <- channel
 }
 
-func newFaucetStateBroadcast(source <-chan *faucetState) *faucetStateBroadcast {
+func newFaucetStateBroadcast() *faucetStateBroadcast {
 	service := &faucetStateBroadcast{
-		source:         source,
+		source:         make(chan *faucetState),
 		listeners:      make([]chan *faucetState, 0),
 		addListener:    make(chan chan *faucetState),
 		removeListener: make(chan (<-chan *faucetState)),
@@ -356,7 +363,6 @@ type faucet struct {
 	update    chan struct{}        // Channel to signal request updates
 	fundQueue chan *fundReq        // Channel to signal funded requests
 
-	stateUpdate chan *faucetState     // Channel to signal faucet state updates
 	faucetState *faucetStateBroadcast // Broadcast channel for faucet state
 
 	lock sync.RWMutex // Lock protecting the faucet's internals
@@ -438,8 +444,6 @@ func newFaucet(genesis *core.Genesis, port int, enodes []*enode.Node, network ui
 		return nil, err
 	}
 
-	stateUpdate := make(chan *faucetState, 1)
-
 	return &faucet{
 		config:      genesis.Config,
 		stack:       stack,
@@ -452,8 +456,7 @@ func newFaucet(genesis *core.Genesis, port int, enodes []*enode.Node, network ui
 		fundQueue:   make(chan *fundReq, 1024),
 		bep2eInfos:  bep2eInfos,
 		bep2eAbi:    bep2eAbi,
-		stateUpdate: stateUpdate,
-		faucetState: newFaucetStateBroadcast(stateUpdate),
+		faucetState: newFaucetStateBroadcast(),
 		fundedCache: lru,
 	}, nil
 }
@@ -474,8 +477,6 @@ func newHttpFaucet(genesis *core.Genesis, rpcApi string, ks *keystore.KeyStore, 
 		return nil, err
 	}
 
-	stateUpdate := make(chan *faucetState, 1)
-
 	return &faucet{
 		config:      genesis.Config,
 		client:      client,
@@ -487,8 +488,7 @@ func newHttpFaucet(genesis *core.Genesis, rpcApi string, ks *keystore.KeyStore, 
 		fundQueue:   make(chan *fundReq, 1024),
 		bep2eInfos:  bep2eInfos,
 		bep2eAbi:    bep2eAbi,
-		stateUpdate: stateUpdate,
-		faucetState: newFaucetStateBroadcast(stateUpdate),
+		faucetState: newFaucetStateBroadcast(),
 		fundedCache: lru,
 	}, nil
 }
@@ -498,8 +498,6 @@ func (f *faucet) close() error {
 	if f.stack == nil {
 		return nil
 	}
-
-	close(f.stateUpdate)
 
 	return f.stack.Close()
 }
@@ -550,6 +548,28 @@ func (f *faucet) apiHandler(w http.ResponseWriter, r *http.Request) {
 	// register static broadcast
 	faucetState := f.faucetState.Subscribe()
 	defer f.faucetState.Unsubscription(faucetState)
+
+	go func() {
+		for {
+			newState := <-faucetState
+			if err := send(wsconn, map[string]interface{}{
+				"funds":    new(big.Int).Div(newState.Balance, ether),
+				"funded":   newState.Nonce,
+				"peers":    newState.PeerNumber,
+				"requests": newState.Reqs,
+			}, time.Second); err != nil {
+				log.Warn("Failed to send stats to client", "err", err)
+				wsconn.conn.Close()
+				return
+			}
+
+			if err := send(wsconn, newState.Header, time.Second); err != nil {
+				log.Warn("Failed to send header to client", "err", err)
+				wsconn.conn.Close()
+				return
+			}
+		}
+	}()
 
 	sendCount := 0
 	requestTimestamp := time.Now().Add(time.Duration(-100) * time.Millisecond)
@@ -639,26 +659,6 @@ func (f *faucet) apiHandler(w http.ResponseWriter, r *http.Request) {
 				}
 				continue
 			}
-		}
-
-		select {
-		case newState := <-faucetState:
-			if err := send(wsconn, map[string]interface{}{
-				"funds":    new(big.Int).Div(newState.Balance, ether),
-				"funded":   newState.Nonce,
-				"peers":    newState.PeerNumber,
-				"requests": newState.Reqs,
-			}, time.Second); err != nil {
-				log.Warn("Failed to send stats to client", "err", err)
-				return
-			}
-
-			if err := send(wsconn, newState.Header, time.Second); err != nil {
-				log.Warn("Failed to send header to client", "err", err)
-				return
-			}
-
-		default:
 		}
 
 		// Retrieve the Ethereum address to fund, the requesting user and a profile picture
@@ -964,12 +964,11 @@ func (f *faucet) loop() {
 				PeerNumber: peerCount,
 			}
 
-			select {
-			case f.stateUpdate <- newState:
-			default:
-			}
-
 			f.lock.RUnlock()
+
+			go func() {
+				f.faucetState.Broadcast(newState)
+			}()
 		}
 	}()
 
