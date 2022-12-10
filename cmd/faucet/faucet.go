@@ -561,13 +561,13 @@ func (f *faucet) apiHandler(w http.ResponseWriter, r *http.Request) {
 				"peers":    newState.PeerNumber,
 				"requests": newState.Reqs,
 			}, time.Second); err != nil {
-				log.Warn("Failed to send stats to client", "err", err)
+				log.Warn("Failed to send stats to client", "ip", ip, "err", err)
 				wsconn.conn.Close()
 				return
 			}
 
 			if err := send(wsconn, newState.Header, time.Second); err != nil {
-				log.Warn("Failed to send header to client", "err", err)
+				log.Warn("Failed to send header to client", "ip", ip, "err", err)
 				wsconn.conn.Close()
 				return
 			}
