@@ -551,7 +551,11 @@ func (f *faucet) apiHandler(w http.ResponseWriter, r *http.Request) {
 
 	go func() {
 		for {
-			newState := <-faucetState
+			newState, ok := <-faucetState
+			if !ok {
+				return
+			}
+
 			if err := send(wsconn, map[string]interface{}{
 				"funds":    new(big.Int).Div(newState.Balance, ether),
 				"funded":   newState.Nonce,
