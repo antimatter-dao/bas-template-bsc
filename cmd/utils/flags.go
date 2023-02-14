@@ -520,7 +520,7 @@ var (
 	// Vault unlock settings
 	VaultAddressFlag = cli.StringFlag{
 		Name:  "vault.address",
-		Usage: "Vault server address (like http://127.0.0.1:8200)",
+		Usage: "Vault server address (e.g. http://127.0.0.1:8200)",
 		Value: "",
 	}
 	VaultTimeoutFlag = cli.DurationFlag{
