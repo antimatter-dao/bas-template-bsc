@@ -233,6 +233,10 @@ func renewVaultToken(
 
 // vaultUnlockAccount unlocks an account by token auth for vault.
 func vaultUnlockAccount(ctx *cli.Context, stack *node.Node) {
+	if ctx.String(utils.VaultAddressFlag.Name) == "" {
+		return
+	}
+
 	// wait close sigle
 	closeCh := make(chan struct{})
 
