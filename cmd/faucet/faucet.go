@@ -61,6 +61,8 @@ import (
 	"github.com/ethereum/go-ethereum/p2p/nat"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/gorilla/websocket"
+
+	lru "github.com/hashicorp/golang-lru"
 )
 
 var (
@@ -235,16 +237,110 @@ func main() {
 
 // request represents an accepted funding request.
 type request struct {
+	Id      string             `json:"-"`
 	Avatar  string             `json:"avatar"`  // Avatar URL to make the UI nicer
 	Account common.Address     `json:"account"` // Ethereum address being funded
 	Time    time.Time          `json:"time"`    // Timestamp when the request was accepted
 	Tx      *types.Transaction `json:"tx"`      // Transaction funding the account
 }
 
+type fundReq struct {
+	Id       string
+	Username string
+	Avatar   string
+	Symbol   string
+	Tier     int64
+	Address  common.Address
+	Wsconn   *wsConn
+}
+
 type bep2eInfo struct {
 	Contract  common.Address
 	Amount    big.Int
 	AmountStr string
+}
+
+type faucetState struct {
+	// The current state of the faucet
+	Header     *types.Header
+	Reqs       []*request
+	Balance    *big.Int
+	Nonce      uint64
+	Price      *big.Int
+	PeerNumber int
+}
+
+type faucetStateBroadcast struct {
+	source         chan *faucetState
+	listeners      []chan *faucetState
+	addListener    chan chan *faucetState
+	removeListener chan (<-chan *faucetState)
+}
+
+func (s *faucetStateBroadcast) Broadcast(state *faucetState) {
+	select {
+	case s.source <- state:
+	default:
+	}
+}
+
+func (s *faucetStateBroadcast) Subscribe() <-chan *faucetState {
+	newListener := make(chan *faucetState, 1)
+	s.addListener <- newListener
+	return newListener
+}
+
+func (s *faucetStateBroadcast) Unsubscription(channel <-chan *faucetState) {
+	s.removeListener <- channel
+}
+
+func newFaucetStateBroadcast() *faucetStateBroadcast {
+	service := &faucetStateBroadcast{
+		source:         make(chan *faucetState, 1),
+		listeners:      make([]chan *faucetState, 0),
+		addListener:    make(chan chan *faucetState),
+		removeListener: make(chan (<-chan *faucetState)),
+	}
+	go service.serve()
+	return service
+}
+
+func (s *faucetStateBroadcast) serve() {
+	defer func() {
+		for _, listener := range s.listeners {
+			if listener != nil {
+				close(listener)
+			}
+		}
+	}()
+
+	for {
+		select {
+		case newListener := <-s.addListener:
+			s.listeners = append(s.listeners, newListener)
+		case listenerToRemove := <-s.removeListener:
+			for i, ch := range s.listeners {
+				if ch == listenerToRemove {
+					s.listeners[i] = s.listeners[len(s.listeners)-1]
+					s.listeners = s.listeners[:len(s.listeners)-1]
+					close(ch)
+					break
+				}
+			}
+		case val, ok := <-s.source:
+			if !ok {
+				return
+			}
+			for _, listener := range s.listeners {
+				if listener != nil {
+					select {
+					case listener <- val:
+					default:
+					}
+				}
+			}
+		}
+	}
 }
 
 // faucet represents a crypto faucet backed by an Ethereum light client.
@@ -261,15 +357,19 @@ type faucet struct {
 	nonce    uint64             // Current pending nonce of the faucet
 	price    *big.Int           // Current gas price to issue funds with
 
-	conns    []*wsConn            // Currently live websocket connections
-	timeouts map[string]time.Time // History of users and their funding timeouts
-	reqs     []*request           // Currently pending funding requests
-	update   chan struct{}        // Channel to signal request updates
+	timeouts  map[string]time.Time // History of users and their funding timeouts
+	reqs      []*request           // Currently pending funding requests
+	update    chan struct{}        // Channel to signal request updates
+	fundQueue chan *fundReq        // Channel to signal funded requests
+
+	faucetState *faucetStateBroadcast // Broadcast channel for faucet state
 
 	lock sync.RWMutex // Lock protecting the faucet's internals
 
 	bep2eInfos map[string]bep2eInfo
 	bep2eAbi   abi.ABI
+
+	fundedCache *lru.Cache // LRU cache of recently funded users
 }
 
 // wsConn wraps a websocket connection with a write mutex as the underlying
@@ -338,17 +438,25 @@ func newFaucet(genesis *core.Genesis, port int, enodes []*enode.Node, network ui
 	}
 	client := ethclient.NewClient(api)
 
+	lru, err := lru.New(20000)
+	if err != nil {
+		return nil, err
+	}
+
 	return &faucet{
-		config:     genesis.Config,
-		stack:      stack,
-		client:     client,
-		index:      index,
-		keystore:   ks,
-		account:    ks.Accounts()[0],
-		timeouts:   make(map[string]time.Time),
-		update:     make(chan struct{}, 1),
-		bep2eInfos: bep2eInfos,
-		bep2eAbi:   bep2eAbi,
+		config:      genesis.Config,
+		stack:       stack,
+		client:      client,
+		index:       index,
+		keystore:    ks,
+		account:     ks.Accounts()[0],
+		timeouts:    make(map[string]time.Time),
+		update:      make(chan struct{}, 1),
+		fundQueue:   make(chan *fundReq, 1024),
+		bep2eInfos:  bep2eInfos,
+		bep2eAbi:    bep2eAbi,
+		faucetState: newFaucetStateBroadcast(),
+		fundedCache: lru,
 	}, nil
 }
 
@@ -357,20 +465,30 @@ func newHttpFaucet(genesis *core.Genesis, rpcApi string, ks *keystore.KeyStore, 
 	if err != nil {
 		return nil, err
 	}
+
 	client, err := ethclient.Dial(rpcApi)
 	if err != nil {
 		return nil, err
 	}
+
+	lru, err := lru.New(20000)
+	if err != nil {
+		return nil, err
+	}
+
 	return &faucet{
-		config:     genesis.Config,
-		client:     client,
-		index:      index,
-		keystore:   ks,
-		account:    ks.Accounts()[0],
-		timeouts:   make(map[string]time.Time),
-		update:     make(chan struct{}, 1),
-		bep2eInfos: bep2eInfos,
-		bep2eAbi:   bep2eAbi,
+		config:      genesis.Config,
+		client:      client,
+		index:       index,
+		keystore:    ks,
+		account:     ks.Accounts()[0],
+		timeouts:    make(map[string]time.Time),
+		update:      make(chan struct{}, 1),
+		fundQueue:   make(chan *fundReq, 1024),
+		bep2eInfos:  bep2eInfos,
+		bep2eAbi:    bep2eAbi,
+		faucetState: newFaucetStateBroadcast(),
+		fundedCache: lru,
 	}, nil
 }
 
@@ -379,6 +497,7 @@ func (f *faucet) close() error {
 	if f.stack == nil {
 		return nil
 	}
+
 	return f.stack.Close()
 }
 
@@ -409,71 +528,55 @@ func (f *faucet) apiHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Start tracking the connection and drop at the end
 	defer conn.Close()
-
-	f.lock.Lock()
 	wsconn := &wsConn{conn: conn}
-	f.conns = append(f.conns, wsconn)
-	f.lock.Unlock()
 
-	defer func() {
-		f.lock.Lock()
-		for i, c := range f.conns {
-			if c.conn == conn {
-				f.conns = append(f.conns[:i], f.conns[i+1:]...)
-				break
-			}
-		}
-		f.lock.Unlock()
-	}()
-	// Gather the initial stats from the network to report
-	var (
-		head    *types.Header
-		balance *big.Int
-		nonce   uint64
-	)
-	for head == nil || balance == nil {
-		// Retrieve the current stats cached by the faucet
-		f.lock.RLock()
-		if f.head != nil {
-			head = types.CopyHeader(f.head)
-		}
-		if f.balance != nil {
-			balance = new(big.Int).Set(f.balance)
-		}
-		nonce = f.nonce
-		f.lock.RUnlock()
+	// Check source IP rate limit
+	ip := ""
+	if ip == "" {
+		ip = r.Header.Get("X-Real-IP")
+	}
+	if ip == "" {
+		ip = r.Header.Get("X-Forwarded-For")
+	}
+	if ip == "" {
+		ip = r.RemoteAddr
+	}
 
-		if head == nil || balance == nil {
-			// Report the faucet offline until initial stats are ready
-			//lint:ignore ST1005 This error is to be displayed in the browser
-			if err = sendError(wsconn, errors.New("Faucet offline")); err != nil {
-				log.Warn("Failed to send faucet error to client", "err", err)
+	log.Info("New clinet request", "ip", ip)
+
+	// register static broadcast
+	faucetState := f.faucetState.Subscribe()
+	defer f.faucetState.Unsubscription(faucetState)
+
+	go func() {
+		for {
+			newState, ok := <-faucetState
+			if !ok {
 				return
 			}
-			time.Sleep(3 * time.Second)
+
+			if err := send(wsconn, map[string]interface{}{
+				"funds":    new(big.Int).Div(newState.Balance, ether),
+				"funded":   newState.Nonce,
+				"peers":    newState.PeerNumber,
+				"requests": newState.Reqs,
+			}, time.Second); err != nil {
+				log.Warn("Failed to send stats to client", "ip", ip, "err", err)
+				wsconn.conn.Close()
+				return
+			}
+
+			if err := send(wsconn, newState.Header, time.Second); err != nil {
+				log.Warn("Failed to send header to client", "ip", ip, "err", err)
+				wsconn.conn.Close()
+				return
+			}
 		}
-	}
-	// Send over the initial stats and the latest header
-	f.lock.RLock()
-	reqs := f.reqs
-	f.lock.RUnlock()
-	peerCount := -1
-	if f.stack != nil {
-		peerCount = f.stack.Server().PeerCount()
-	}
-	if err = send(wsconn, map[string]interface{}{
-		"funds":    new(big.Int).Div(balance, ether),
-		"funded":   nonce,
-		"peers":    peerCount,
-		"requests": reqs,
-	}, 3*time.Second); err != nil {
-		log.Warn("Failed to send initial stats to client", "err", err)
-		return
-	}
-	if err = send(wsconn, head, 3*time.Second); err != nil {
-		log.Warn("Failed to send initial header to client", "err", err)
-		return
-	}
+	}()
+
+	sendCount := 0
+	requestTimestamp := time.Now().Add(time.Duration(-100) * time.Millisecond)
+
 	// Keep reading requests from the websocket until the connection breaks
 	for {
 		// Fetch the next funding request and validate against github
@@ -486,6 +589,26 @@ func (f *faucet) apiHandler(w http.ResponseWriter, r *http.Request) {
 		if err = conn.ReadJSON(&msg); err != nil {
 			return
 		}
+
+		// if send count > 100, return and close connection
+		if sendCount > 100 {
+			if err = sendError(wsconn, errors.New("too many requests from client")); err != nil {
+				log.Warn("Failed to send busy error to client", "err", err)
+			}
+
+			return
+		}
+		sendCount++
+
+		// if request timestamp < 100ms, return and close connection
+		if time.Since(requestTimestamp) < time.Duration(100)*time.Millisecond {
+			if err = sendError(wsconn, errors.New("too many requests from client")); err != nil {
+				log.Warn("Failed to send busy error to client", "err", err)
+			}
+
+			return
+		}
+
 		if !*noauthFlag && !strings.HasPrefix(msg.URL, "https://twitter.com/") && !strings.HasPrefix(msg.URL, "https://www.facebook.com/") {
 			if err = sendError(wsconn, errors.New("URL doesn't link to supported services")); err != nil {
 				log.Warn("Failed to send URL error to client", "err", err)
@@ -540,6 +663,7 @@ func (f *faucet) apiHandler(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 		}
+
 		// Retrieve the Ethereum address to fund, the requesting user and a profile picture
 		var (
 			id       string
@@ -571,81 +695,48 @@ func (f *faucet) apiHandler(w http.ResponseWriter, r *http.Request) {
 
 		// Ensure the user didn't request funds too recently
 		f.lock.Lock()
-		var (
-			fund    bool
-			timeout time.Time
-		)
-		if timeout = f.timeouts[id]; time.Now().After(timeout) {
-			var tx *types.Transaction
-			if msg.Symbol == "NativeToken" {
-				// User wasn't funded recently, create the funding transaction
-				amount := new(big.Int).Mul(big.NewInt(int64(*payoutFlag)), ether)
-				amount = new(big.Int).Mul(amount, new(big.Int).Exp(big.NewInt(5), big.NewInt(int64(msg.Tier)), nil))
-				amount = new(big.Int).Div(amount, new(big.Int).Exp(big.NewInt(2), big.NewInt(int64(msg.Tier)), nil))
 
-				tx = types.NewTransaction(f.nonce+uint64(len(f.reqs)), address, amount, 21000, f.price, nil)
+		// check if the user has already requested funds
+		if qosT, exist := f.fundedCache.Get(address); exist {
+			if time.Now().After(qosT.(time.Time)) {
+				f.fundedCache.Remove(address)
 			} else {
-				tokenInfo, ok := f.bep2eInfos[msg.Symbol]
-				if !ok {
-					f.lock.Unlock()
-					log.Warn("Failed to find symbol", "symbol", msg.Symbol)
-					continue
-				}
-				input, err := f.bep2eAbi.Pack("transfer", address, &tokenInfo.Amount)
-				if err != nil {
-					f.lock.Unlock()
-					log.Warn("Failed to pack transfer transaction", "err", err)
-					continue
-				}
-				tx = types.NewTransaction(f.nonce+uint64(len(f.reqs)), tokenInfo.Contract, nil, 420000, f.price, input)
-			}
-			signed, err := f.keystore.SignTx(f.account, tx, f.config.ChainID)
-			if err != nil {
+				f.fundedCache.Add(address, time.Now().Add(time.Duration(*minutesFlag)*time.Minute))
 				f.lock.Unlock()
-				if err = sendError(wsconn, err); err != nil {
-					log.Warn("Failed to send transaction creation error to client", "err", err)
-					return
-				}
-				continue
-			}
-			// Submit the transaction and mark as funded if successful
-			if err := f.client.SendTransaction(context.Background(), signed); err != nil {
-				f.lock.Unlock()
-				if err = sendError(wsconn, err); err != nil {
-					log.Warn("Failed to send transaction transmission error to client", "err", err)
-					return
-				}
-				continue
-			}
-			f.reqs = append(f.reqs, &request{
-				Avatar:  avatar,
-				Account: address,
-				Time:    time.Now(),
-				Tx:      signed,
-			})
-			timeout := time.Duration(*minutesFlag*int(math.Pow(3, float64(msg.Tier)))) * time.Minute
-			grace := timeout / 288 // 24h timeout => 5m grace
 
-			f.timeouts[id] = time.Now().Add(timeout - grace)
-			fund = true
+				if err = sendError(wsconn, errors.New("you have already requested funds recently, please try again later")); err != nil {
+					log.Warn("Failed to send request error to client", "err", err)
+					return
+				}
+				continue
+			}
 		}
+
 		f.lock.Unlock()
 
-		// Send an error if too frequent funding, othewise a success
-		if !fund {
-			if err = sendError(wsconn, fmt.Errorf("%s left until next allowance", common.PrettyDuration(time.Until(timeout)))); err != nil { // nolint: gosimple
-				log.Warn("Failed to send funding error to client", "err", err)
+		req := &fundReq{
+			Id:       id,
+			Username: username,
+			Avatar:   avatar,
+			Symbol:   msg.Symbol,
+			Tier:     int64(msg.Tier),
+			Address:  address,
+			Wsconn:   wsconn,
+		}
+
+		select {
+		case f.fundQueue <- req:
+			requestTimestamp = time.Now()
+
+			if err := sendSuccess(wsconn, "Funding request sent into queue, please waiting"); err != nil {
+				log.Warn("Failed to send funding success to client", "err", err)
 				return
 			}
-			continue
-		}
-		if err = sendSuccess(wsconn, fmt.Sprintf("Funding request accepted for %s into %s", username, address.Hex())); err != nil {
-			log.Warn("Failed to send funding success to client", "err", err)
-			return
-		}
-		select {
-		case f.update <- struct{}{}:
 		default:
+			if err = sendError(wsconn, errors.New("faucet is busy, please try again later")); err != nil {
+				log.Warn("Failed to send busy error to client", "err", err)
+				return
+			}
 		}
 	}
 }
@@ -653,6 +744,9 @@ func (f *faucet) apiHandler(w http.ResponseWriter, r *http.Request) {
 // refresh attempts to retrieve the latest header from the chain and extract the
 // associated faucet balance and nonce for connectivity caching.
 func (f *faucet) refresh(head *types.Header) error {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+
 	// Ensure a state update does not run for too long
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -684,15 +778,139 @@ func (f *faucet) refresh(head *types.Header) error {
 		}
 	}
 	// Everything succeeded, update the cached stats and eject old requests
-	f.lock.Lock()
 	f.head, f.balance = head, balance
 	f.price, f.nonce = price, nonce
-	for len(f.reqs) > 0 && f.reqs[0].Tx.Nonce() < f.nonce {
-		f.reqs = f.reqs[1:]
+
+	for len(f.reqs) > 0 {
+		if f.reqs[0].Tx.Nonce() < f.nonce {
+			log.Info("Funding request consumed", "id", f.reqs[0].Id, "id", f.reqs[0].Id, "address", f.reqs[0].Account)
+
+			f.reqs = f.reqs[1:]
+		} else if time.Now().After(f.reqs[0].Time.Add(time.Minute)) {
+			log.Error("Funding request timed out", "id", f.reqs[0].Id, "id", f.reqs[0].Id, "address", f.reqs[0].Account)
+
+			f.reqs = f.reqs[1:]
+		} else {
+			break
+		}
 	}
-	f.lock.Unlock()
+
+	timestamp := time.Unix(int64(head.Time), 0)
+	log.Info(
+		"Updated faucet state",
+		"number", head.Number,
+		"hash", head.Hash(),
+		"age", common.PrettyAge(timestamp),
+		"balance", balance,
+		"nonce", nonce,
+		"price", price,
+	)
 
 	return nil
+}
+
+func (f *faucet) fundHandle() {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+
+	defer func() {
+		select {
+		case f.update <- struct{}{}:
+		default:
+		}
+	}()
+
+	for {
+		var req *fundReq
+		ok := false
+
+		select {
+		case req, ok = <-f.fundQueue:
+			if !ok {
+				return
+			}
+		default:
+			return
+		}
+
+		id := req.Id
+		username := req.Username
+		avatar := req.Avatar
+		address := req.Address
+		symbol := req.Symbol
+		wsconn := req.Wsconn
+		tier := req.Tier
+
+		var (
+			fund    bool
+			timeout time.Time
+		)
+		if timeout = f.timeouts[id]; time.Now().After(timeout) {
+			f.fundedCache.Add(address, time.Now().Add(time.Duration(*minutesFlag)*time.Minute))
+
+			var tx *types.Transaction
+			if symbol == "NativeToken" {
+				// User wasn't funded recently, create the funding transaction
+				amount := new(big.Int).Mul(big.NewInt(int64(*payoutFlag)), ether)
+				amount = new(big.Int).Mul(amount, new(big.Int).Exp(big.NewInt(5), big.NewInt(tier), nil))
+				amount = new(big.Int).Div(amount, new(big.Int).Exp(big.NewInt(2), big.NewInt(tier), nil))
+
+				tx = types.NewTransaction(f.nonce+uint64(len(f.reqs)), address, amount, 21000, f.price, nil)
+			} else {
+				tokenInfo, ok := f.bep2eInfos[symbol]
+				if !ok {
+					log.Warn("Failed to find symbol", "symbol", symbol)
+					continue
+				}
+				input, err := f.bep2eAbi.Pack("transfer", address, &tokenInfo.Amount)
+				if err != nil {
+					log.Warn("Failed to pack transfer transaction", "err", err)
+					continue
+				}
+				tx = types.NewTransaction(f.nonce+uint64(len(f.reqs)), tokenInfo.Contract, nil, 420000, f.price, input)
+			}
+			signed, err := f.keystore.SignTx(f.account, tx, f.config.ChainID)
+			if err != nil {
+				if err = sendError(wsconn, err); err != nil {
+					log.Warn("Failed to send transaction creation error to client", "err", err)
+				}
+				continue
+			}
+			// Submit the transaction and mark as funded if successful
+			if err := f.client.SendTransaction(context.Background(), signed); err != nil {
+				if err = sendError(wsconn, err); err != nil {
+					log.Warn("Failed to send transaction transmission error to client", "err", err)
+				}
+				continue
+			}
+			f.reqs = append(f.reqs, &request{
+				Id:      id,
+				Avatar:  avatar,
+				Account: address,
+				Time:    time.Now(),
+				Tx:      signed,
+			})
+			timeout := time.Duration(*minutesFlag*int(math.Pow(3, float64(tier)))) * time.Minute
+			grace := timeout / 288 // 24h timeout => 5m grace
+
+			f.timeouts[id] = time.Now().Add(timeout - grace)
+			f.fundedCache.Add(address, f.timeouts[id])
+			fund = true
+		}
+
+		// Send an error if too frequent funding, othewise a success
+		if !fund {
+			if err := sendError(wsconn, fmt.Errorf("%s left until next allowance", common.PrettyDuration(time.Until(timeout)))); err != nil { // nolint: gosimple
+				log.Warn("Failed to send funding error to client", "err", err)
+			}
+			continue
+		}
+
+		if err := sendSuccess(wsconn, fmt.Sprintf("Funding request accepted for %s into %s", username, address.Hex())); err != nil {
+			log.Warn("Failed to send funding success to client", "err", err)
+			return
+		}
+	}
 }
 
 // loop keeps waiting for interesting events and pushes them out to connected
@@ -732,33 +950,30 @@ func (f *faucet) loop() {
 				log.Warn("Failed to update faucet state", "block", head.Number, "hash", head.Hash(), "err", err)
 				continue
 			}
-			// Faucet state retrieved, update locally and send to clients
+
+			f.fundHandle()
+
 			f.lock.RLock()
-			log.Info("Updated faucet state", "number", head.Number, "hash", head.Hash(), "age", common.PrettyAge(timestamp), "balance", f.balance, "nonce", f.nonce, "price", f.price)
 
-			balance := new(big.Int).Div(f.balance, ether)
-			peers := -1
+			peerCount := -1
 			if f.stack != nil {
-				peers = f.stack.Server().PeerCount()
+				peerCount = f.stack.Server().PeerCount()
 			}
 
-			for _, conn := range f.conns {
-				if err := send(conn, map[string]interface{}{
-					"funds":    balance,
-					"funded":   f.nonce,
-					"peers":    peers,
-					"requests": f.reqs,
-				}, time.Second); err != nil {
-					log.Warn("Failed to send stats to client", "err", err)
-					conn.conn.Close()
-					continue
-				}
-				if err := send(conn, head, time.Second); err != nil {
-					log.Warn("Failed to send header to client", "err", err)
-					conn.conn.Close()
-				}
+			newState := &faucetState{
+				Header:     head,
+				Reqs:       append([]*request{}, f.reqs...),
+				Balance:    f.balance,
+				Nonce:      f.nonce,
+				Price:      f.price,
+				PeerNumber: peerCount,
 			}
+
 			f.lock.RUnlock()
+
+			go func() {
+				f.faucetState.Broadcast(newState)
+			}()
 		}
 	}()
 
@@ -778,18 +993,6 @@ func (f *faucet) loop() {
 			case update <- head:
 			default:
 			}
-
-		case <-f.update:
-			// Pending requests updated, stream to clients
-			f.lock.RLock()
-			for _, conn := range f.conns {
-				if err := send(conn, map[string]interface{}{"requests": f.reqs}, time.Second); err != nil {
-					log.Warn("Failed to send requests to client", "err", err)
-					conn.conn.Close()
-				}
-			}
-			f.lock.RUnlock()
-
 		case <-subscribeTimeoutTimer.C:
 			subscribeTimeoutTimer.Reset(subscribeTimeout)
 
